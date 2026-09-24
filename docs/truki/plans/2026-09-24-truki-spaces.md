@@ -679,7 +679,7 @@ git commit -m "truki(spaces): persist emoji/color/hideFromAllChats in sqlite"
 **Files:**
 - Modify: `protos/SignalStorage.proto` (message `ChatFolderRecord`, ~line 381)
 - Modify: `ts/services/storageRecordOps.preload.ts` (`toChatFolderRecord` ~line 984, and the merge path ~line 2880)
-- Test: `ts/test-node/services/trukiChatFolderRecord_test.node.ts` (create)
+- Test: `ts/test-node/services/trukiChatFolderRecord_test.preload.ts` (create)
 
 **Interfaces:**
 - Consumes: `ChatFolder` fields from Task 1, `fromWire`/`toWire` from
@@ -687,7 +687,7 @@ git commit -m "truki(spaces): persist emoji/color/hideFromAllChats in sqlite"
 - Produces: the three fields survive a `toChatFolderRecord` →
   `mergeChatFolderRecord` round-trip, and `$unknown` is still preserved.
 
-- [ ] **Step 1: Add the proto fields**
+- [x] **Step 1: Add the proto fields**
 
 In `protos/SignalStorage.proto`, inside `message ChatFolderRecord`, after the
 existing field 11 (`deletedAtTimestampMs`):
@@ -701,7 +701,7 @@ existing field 11 (`deletedAtTimestampMs`):
   bool hideFromAllChats  = 20003;
 ```
 
-- [ ] **Step 2: Regenerate the protobuf bindings**
+- [x] **Step 2: Regenerate the protobuf bindings**
 
 ```sh
 pnpm run generate
@@ -716,10 +716,13 @@ node -e "const s=require('./package.json').scripts;for(const k in s)if(/proto/i.
 Confirm `Proto.ChatFolderRecord` now offers `emoji`, `color` and
 `hideFromAllChats` before continuing.
 
-- [ ] **Step 3: Write the failing round-trip test**
+- [x] **Step 3: Write the failing round-trip test**
 
-Create `ts/test-node/services/trukiChatFolderRecord_test.node.ts`. It must
+Create `ts/test-node/services/trukiChatFolderRecord_test.preload.ts`. It must
 cover Review Focus item 1:
+
+It imports preload-only storage code, so the test itself must use the
+`.preload.ts` suffix. A `.node.ts` suffix violates the import-graph linter.
 
 ```ts
 it('round-trips emoji, color and hideFromAllChats', () => {
@@ -752,9 +755,9 @@ grep -n "mergeChatFolderRecord\|function fromChatFolderRecord" ts/services/stora
 If the decode path is not directly callable from a node test, test
 `toChatFolderRecord` plus a direct `Proto.ChatFolderRecord.decode(encode(...))`
 and assert on the decoded record's fields; then assert the mapping helper you
-write in Step 4 converts them correctly.
+write in Step 6 converts them correctly.
 
-- [ ] **Step 4: Run it and confirm it fails**
+- [x] **Step 4: Run it and confirm it fails**
 
 ```sh
 pnpm run test-node -- --grep "trukiChatFolderRecord"
@@ -762,7 +765,7 @@ pnpm run test-node -- --grep "trukiChatFolderRecord"
 
 Expected: FAIL — the fields are not written.
 
-- [ ] **Step 5: Write the encode side**
+- [x] **Step 5: Write the encode side**
 
 In `toChatFolderRecord`, add to the returned object, before `$unknown`:
 
@@ -781,7 +784,7 @@ import * as TrukiSpaceColor from '../types/TrukiSpaceColor.std.ts';
 Keep `$unknown: fromStorageUnknownFields(chatFolder.storageUnknownFields)` as
 the last property, exactly as upstream has it.
 
-- [ ] **Step 6: Write the decode side**
+- [x] **Step 6: Write the decode side**
 
 Around line 2880, in the function that builds `remoteChatFolder` from
 `remoteChatFolderRecord`, add the three fields to the constructed object:
@@ -795,7 +798,7 @@ Around line 2880, in the function that builds `remoteChatFolder` from
 `fromWire` is what makes Review Focus item 1 pass — do not inline `?? null`
 here, `0` is a real value that must become `null`.
 
-- [ ] **Step 7: Run the tests**
+- [x] **Step 7: Run the tests**
 
 ```sh
 pnpm run test-node -- --grep "trukiChatFolderRecord"
@@ -806,11 +809,11 @@ pnpm run oxlint
 Expected: 4 passing, and `check:types` now clean apart from the two pre-existing
 errors listed in Global Constraints — all Task 1 fallout is resolved.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```sh
 git add protos/SignalStorage.proto ts/services/storageRecordOps.preload.ts \
-        ts/test-node/services/trukiChatFolderRecord_test.node.ts
+        ts/test-node/services/trukiChatFolderRecord_test.preload.ts
 git commit -m "truki(spaces): sync emoji/color/hideFromAllChats via storage service"
 ```
 
