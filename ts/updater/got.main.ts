@@ -20,8 +20,15 @@ function getProxyUrl(): string | undefined {
   return process.env.HTTPS_PROXY || process.env.https_proxy;
 }
 
-function getCertificateAuthority(): string {
-  return config.get('certificateAuthority');
+function getCertificateAuthority(): string | undefined {
+  // Upstream pins Signal's own CA here, which only covers Signal's update
+  // servers. Truki updates from GitHub, so use the system trust store instead —
+  // also what lets updates work on networks that terminate TLS with a corporate
+  // CA. Update integrity does not rest on this: every update is verified
+  // against updatesPublicKey before it is installed.
+  //
+  // The config value is left untouched; other parts of the app still read it.
+  return undefined;
 }
 
 export type { GotOptions };
