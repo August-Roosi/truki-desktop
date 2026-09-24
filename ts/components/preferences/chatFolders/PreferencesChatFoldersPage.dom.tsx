@@ -374,7 +374,10 @@ function ChatFolderPresetItem(props: ChatFolderPresetItemProps) {
   const { title, preset } = config;
 
   const handleCreateChatFolder = useCallback(() => {
-    onCreateChatFolder({ ...preset, name: title }, true);
+    onCreateChatFolder(
+      { ...preset, name: title, emoji: null, color: null },
+      true
+    );
   }, [onCreateChatFolder, title, preset]);
 
   return (

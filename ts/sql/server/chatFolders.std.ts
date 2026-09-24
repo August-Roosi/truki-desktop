@@ -24,6 +24,7 @@ export type ChatFolderRow = Readonly<
     | 'includedConversationIds'
     | 'excludedConversationIds'
     | 'storageNeedsSync'
+    | 'hideFromAllChats'
   > & {
     showOnlyUnread: 0 | 1;
     showMutedChats: 0 | 1;
@@ -32,6 +33,7 @@ export type ChatFolderRow = Readonly<
     includedConversationIds: string;
     excludedConversationIds: string;
     storageNeedsSync: 0 | 1;
+    hideFromAllChats: 0 | 1;
   }
 >;
 
@@ -45,6 +47,7 @@ function chatFolderToRow(chatFolder: ChatFolder): ChatFolderRow {
     includedConversationIds: JSON.stringify(chatFolder.includedConversationIds),
     excludedConversationIds: JSON.stringify(chatFolder.excludedConversationIds),
     storageNeedsSync: chatFolder.storageNeedsSync ? 1 : 0,
+    hideFromAllChats: chatFolder.hideFromAllChats ? 1 : 0,
   };
 }
 
@@ -58,6 +61,7 @@ function rowToChatFolder(chatFolderRow: ChatFolderRow): ChatFolder {
     includedConversationIds: JSON.parse(chatFolderRow.includedConversationIds),
     excludedConversationIds: JSON.parse(chatFolderRow.excludedConversationIds),
     storageNeedsSync: chatFolderRow.storageNeedsSync === 1,
+    hideFromAllChats: chatFolderRow.hideFromAllChats === 1,
   };
 }
 
@@ -123,6 +127,9 @@ function _insertChatFolder(db: WritableDB, chatFolder: ChatFolder): void {
       includeAllGroupChats,
       includedConversationIds,
       excludedConversationIds,
+      emoji,
+      color,
+      hideFromAllChats,
       deletedAtTimestampMs,
       storageID,
       storageVersion,
@@ -139,6 +146,9 @@ function _insertChatFolder(db: WritableDB, chatFolder: ChatFolder): void {
       ${chatFolderRow.includeAllGroupChats},
       ${chatFolderRow.includedConversationIds},
       ${chatFolderRow.excludedConversationIds},
+      ${chatFolderRow.emoji},
+      ${chatFolderRow.color},
+      ${chatFolderRow.hideFromAllChats},
       ${chatFolderRow.deletedAtTimestampMs},
       ${chatFolderRow.storageID},
       ${chatFolderRow.storageVersion},
@@ -205,6 +215,9 @@ export function upsertAllChatsChatFolderFromSync(
         UPDATE chatFolders
         SET
           id = ${chatFolderRow.id},
+          name = ${chatFolderRow.name},
+          emoji = ${chatFolderRow.emoji},
+          color = ${chatFolderRow.color},
           position = ${chatFolderRow.position},
           storageID = ${chatFolderRow.storageID},
           storageVersion = ${chatFolderRow.storageVersion},
@@ -235,6 +248,9 @@ export function updateChatFolder(db: WritableDB, chatFolder: ChatFolder): void {
       includeAllGroupChats = ${chatFolderRow.includeAllGroupChats},
       includedConversationIds = ${chatFolderRow.includedConversationIds},
       excludedConversationIds = ${chatFolderRow.excludedConversationIds},
+      emoji = ${chatFolderRow.emoji},
+      color = ${chatFolderRow.color},
+      hideFromAllChats = ${chatFolderRow.hideFromAllChats},
       deletedAtTimestampMs = ${chatFolderRow.deletedAtTimestampMs},
       storageID = ${chatFolderRow.storageID},
       storageVersion = ${chatFolderRow.storageVersion},
