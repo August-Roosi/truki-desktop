@@ -7,7 +7,7 @@
   "description": "Private messaging from your desktop",
   "desktopName": "truki.desktop",
   "repository": "https://github.com/signalapp/Signal-Desktop.git",
-  "version": "8.27.0",
+  "version": "8.27.1",
   "license": "AGPL-3.0-only",
   "author": {
     "name": "Trüki"
