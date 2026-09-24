@@ -490,14 +490,6 @@ $message-padding-horizontal: 12px;
   }
 }
 
-// FORK: outgoing bubbles are always green, whatever conversation color is set.
-// Must stay after the loops above, which set per-color backgrounds.
-.module-message__container--outgoing,
-[class*='module-message__container--outgoing-'] {
-  background-color: variables.$color-forest;
-  background-image: none;
-}
-
 .module-message__container--deleted-for-everyone {
   @include mixins.light-theme {
     color: variables.$color-gray-90;
