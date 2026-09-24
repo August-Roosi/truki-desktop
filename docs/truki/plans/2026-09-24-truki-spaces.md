@@ -74,19 +74,12 @@ ts/windows/main/attachments.preload.ts(205,32): TS2307: Cannot find module 'fs-x
 `fs-xattr` is a macOS-only optional dependency that is not installed on Windows.
 A task is "type-clean" when these two are the *only* errors remaining.
 
-**Known pre-existing `oxlint` errors** — 8 unused `oxlint-disable` directives,
-also not yours, also to be left alone:
+**Known pre-existing `oxlint` errors — 12**, also not yours, also to be left
+alone. See `AGENTS.md` for the per-file breakdown.
 
-```
-ts/util/showConfirmationDialog.dom.tsx      (1)
-ts/util/longRunningTaskWrapper.dom.tsx      (1)
-ts/util/createIdenticon.preload.tsx         (1)
-ts/util/timelineUtil.std.ts                 (3)
-ts/util/getGroupMemberships.dom.ts          (2)
-```
-
-A task is "lint-clean" when these 8 are the only errors remaining. `oxlint`
-exits non-zero regardless, so read the output rather than the exit code.
+A task is "lint-clean" when exactly these 12 remain. `oxlint` exits non-zero
+regardless, so read the output rather than the exit code — and re-measure
+rather than trusting this number, which was wrong once already.
 
 **On Windows, PowerShell may block `pnpm.ps1`.** Use `pnpm.cmd` instead. An
 inherited `ELECTRON_RUN_AS_NODE=1` also breaks `test-node`; clear it for the

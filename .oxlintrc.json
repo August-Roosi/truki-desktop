@@ -2024,15 +2024,15 @@
     // files cannot satisfy without misattributing their authorship. The header
     // is still required by AGENTS.md — only this rule is turned off here.
     //
-    // Truki-owned files are identified by a `truki` segment in their path or a
-    // `Truki`/`truki` filename prefix. Keep that convention: it is also what
-    // makes Truki's footprint greppable when merging upstream.
+    // Truki-owned files are identified by a `truki` segment in their path or
+    // `truki`/`Truki` anywhere in the filename. Keep that convention: it is
+    // also what makes Truki's footprint greppable when merging upstream.
     {
       "files": [
         "**/truki/**/*",
-        "**/[Tt]ruki*.ts",
-        "**/[Tt]ruki*.tsx",
-        "**/[Tt]ruki*.mjs"
+        "**/*[Tt]ruki*.ts",
+        "**/*[Tt]ruki*.tsx",
+        "**/*[Tt]ruki*.mjs"
       ],
       "rules": {
         "signal-desktop/enforce-license-comments": "off"

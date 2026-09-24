@@ -90,19 +90,52 @@ pnpm run test-node
 These are already broken on `main`, are unrelated to any current work, and must
 not be "fixed" as a drive-by:
 
+`check:types` — 2 errors:
+
 ```
 ts/updater/got.main.ts(5,8): TS6133: 'config' is declared but its value is never read.
 ts/windows/main/attachments.preload.ts(205,32): TS2307: Cannot find module 'fs-xattr'
 ```
 
-`fs-xattr` is a macOS-only optional dependency, absent on Windows. Treat the
-tree as type-clean when these two are the only errors left.
+`fs-xattr` is a macOS-only optional dependency, absent on Windows.
+
+`oxlint` — 12 errors, 11 of them unused `oxlint-disable` directives:
+
+```
+ts/util/showConfirmationDialog.dom.tsx    1
+ts/util/longRunningTaskWrapper.dom.tsx    1
+ts/util/createIdenticon.preload.tsx       1
+ts/util/groupAndOrderReactions.std.ts     1
+ts/util/timelineUtil.std.ts               3
+ts/util/getGroupMemberships.dom.ts        2
+scripts/generate-db-schema.mjs            2
+ts/updater/got.main.ts                    1   (no-unused-vars, same 'config' import)
+```
+
+Treat the tree as clean when exactly these remain. **Both commands exit
+non-zero regardless — read the output, never the exit code.**
+
+Count them before assuming a new failure is yours. Equally, do not assume a
+number quoted in a plan is right: re-measure, and say so if it differs.
 
 ### Windows environment
 
 - PowerShell may block `pnpm.ps1`. Use `pnpm.cmd`.
-- An inherited `ELECTRON_RUN_AS_NODE=1` breaks `test-node`. Clear it for the
-  test process only, not globally.
+- An inherited `ELECTRON_RUN_AS_NODE=1` breaks `test-node` — electron-mocha
+  needs Electron's `app`, and you get
+  `TypeError: Cannot read properties of undefined (reading 'getPath')`.
+
+  The variable must be **removed**, not blanked. `ELECTRON_RUN_AS_NODE= pnpm ...`
+  still counts as set and fails identically. Use:
+
+  ```sh
+  env -u ELECTRON_RUN_AS_NODE pnpm.cmd run test-node
+  ```
+
+  A healthy run is ~2400 passing, 12 pending.
+- Stopping a running Storybook is required before `pnpm install` can replace
+  native modules; Windows will not overwrite a loaded `.node` file. Restart it
+  afterwards with `pnpm run storybook`.
 
 Report what actually ran and what it printed. **Never claim a command passed
 without running it.** If something fails and you cannot fix it, say so plainly
@@ -127,13 +160,18 @@ pnpm run test-electron
 
 ### Naming Truki-owned files
 
-**Every Truki-owned file must have a `truki` path segment or a `Truki`/`truki`
-filename prefix** — `ts/sql/truki/ensureTrukiSchema.std.ts`,
-`ts/types/TrukiSpaceColor.std.ts`, `scripts/truki-sign-windows.mjs`.
+**Every Truki-owned file must have a `truki` path segment, or `truki`/`Truki`
+somewhere in its filename** — `ts/sql/truki/ensureTrukiSchema.std.ts`,
+`ts/types/TrukiSpaceColor.std.ts`, `scripts/truki-sign-windows.mjs`,
+`ts/test-node/sql/ensureTrukiSchema_test.node.ts`.
 
 Two reasons. It makes Truki's whole footprint greppable when merging upstream,
 and `.oxlintrc.json` keys its Truki lint override off exactly this convention.
 A Truki file named otherwise will fail lint.
+
+Anywhere in the name counts, so pick the name that reads best. Do not stutter a
+prefix onto a name that already contains it — `ensureTrukiSchema_test.node.ts`,
+never `trukiEnsureTrukiSchema_test.node.ts`.
 
 ### Copyright headers
 
