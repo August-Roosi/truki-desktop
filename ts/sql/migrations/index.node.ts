@@ -15,7 +15,7 @@ import {
   jsonToObject,
 } from '../util.std.ts';
 import type { WritableDB } from '../Interface.std.ts';
-import { ensureTrukiSchema } from '../truki/ensureTrukiSchema.node.ts';
+import { ensureTrukiSchema } from '../truki/ensureTrukiSchema.std.ts';
 
 import updateToSchemaVersion41 from './41-uuid-keys.std.ts';
 import updateToSchemaVersion42 from './42-stale-reactions.std.ts';

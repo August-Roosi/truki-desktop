@@ -40,6 +40,7 @@ export function toWire(color: number | null): number {
 
 /** 0xAARRGGBB -> '#rrggbb'. Alpha is dropped; the accent is always opaque. */
 export function toCssHex(color: number): string {
+  // oxlint-disable-next-line no-bitwise
   const rgb = color & 0x00ffffff;
   return `#${rgb.toString(16).padStart(6, '0')}`;
 }

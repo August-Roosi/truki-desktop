@@ -4,7 +4,7 @@
 import { assert } from 'chai';
 import SQL from '@signalapp/sqlcipher';
 
-import { ensureTrukiSchema } from '../../sql/truki/ensureTrukiSchema.node.ts';
+import { ensureTrukiSchema } from '../../sql/truki/ensureTrukiSchema.std.ts';
 import type { WritableDB } from '../../sql/Interface.std.ts';
 
 function columnNames(db: WritableDB, table: string): Array<string> {
