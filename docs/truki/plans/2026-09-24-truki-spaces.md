@@ -494,7 +494,7 @@ changes at all**. Only the explicit column lists in `_insertChatFolder`,
 `ChatFolderRow` maps booleans to `0 | 1`. `hideFromAllChats` needs the same
 treatment; `emoji` and `color` are nullable scalars and pass through unchanged.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `ts/test-node/sql/trukiChatFolderColumns_test.node.ts`. Open a real
 database the same way the existing SQL tests do — find one first:
@@ -551,10 +551,13 @@ it('syncs name, emoji and color onto the All-chats folder', () => {
 pnpm run test-node -- --grep "trukiChatFolderColumns"
 ```
 
-Expected: FAIL — values read back as `undefined`, and the All-chats name is
-still `''`.
+Expected: FAIL. The precise failure depends on which assertion runs first, but
+the shape is: `emoji` and `color` read back as `null` (SQLite returns `null` for
+a nullable column the INSERT never named, not `undefined`), `hideFromAllChats`
+reads back as `false` via the row converter (the column's SQL default is `0`),
+and the All-chats `name` is still `''` after the sync upsert.
 
-- [ ] **Step 3: Extend `ChatFolderRow`**
+- [x] **Step 3: Extend `ChatFolderRow`**
 
 In the `Omit<...>` union of `ChatFolderRow`, add `'hideFromAllChats'`, and in
 the intersection object add:
@@ -566,7 +569,7 @@ the intersection object add:
 `emoji` and `color` need no entry — they are already the right scalar types on
 `ChatFolder`.
 
-- [ ] **Step 4: Extend the row converters**
+- [x] **Step 4: Extend the row converters**
 
 In `chatFolderToRow`, alongside the other boolean conversions:
 
@@ -580,7 +583,7 @@ In `rowToChatFolder`:
     hideFromAllChats: chatFolderRow.hideFromAllChats === 1,
 ```
 
-- [ ] **Step 5: Extend `_insertChatFolder`**
+- [x] **Step 5: Extend `_insertChatFolder`**
 
 Add the three columns to the `INSERT INTO chatFolders (...)` list, after
 `excludedConversationIds`:
@@ -601,7 +604,7 @@ and the three matching values to the `VALUES (...)` list, in the same position:
 
 Column order and value order must match exactly.
 
-- [ ] **Step 6: Extend `updateChatFolder`**
+- [x] **Step 6: Extend `updateChatFolder`**
 
 Add to the `SET` clause, after `excludedConversationIds = ...`:
 
@@ -611,7 +614,7 @@ Add to the `SET` clause, after `excludedConversationIds = ...`:
       hideFromAllChats = ${chatFolderRow.hideFromAllChats},
 ```
 
-- [ ] **Step 7: Let General's name, emoji and colour arrive from sync**
+- [x] **Step 7: Let General's name, emoji and colour arrive from sync**
 
 Upstream's `upsertAllChatsChatFolderFromSync` deliberately updates only `id`,
 `position` and the storage bookkeeping fields — it never writes `name`, because
@@ -626,7 +629,7 @@ so the UPDATE must carry it. Add to that `SET` clause:
 
 Leave every filter field out. General's filter behaviour must stay locked.
 
-- [ ] **Step 8: Satisfy the two other `ChatFolder` constructors**
+- [x] **Step 8: Satisfy the two other `ChatFolder` constructors**
 
 Task 1 made three fields required, so every place that builds a `ChatFolder` or
 `ChatFolderParams` literal must supply them. Two sit outside the SQL layer:
@@ -649,7 +652,7 @@ add `emoji: null` and `color: null` to the params literal. Task 7 builds the
 real pickers on top; this is the minimal fix that keeps the tree type-clean in
 between.
 
-- [ ] **Step 9: Run the tests**
+- [x] **Step 9: Run the tests**
 
 ```sh
 pnpm run test-node -- --grep "trukiChatFolderColumns"
@@ -660,7 +663,7 @@ Expected: 4 passing. `check:types` now reports only
 `ts/services/storageRecordOps.preload.ts` (fixed in Task 3) plus the two
 pre-existing errors listed in Global Constraints.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```sh
 git add ts/sql/server/chatFolders.std.ts ts/services/backups/import.preload.ts \
