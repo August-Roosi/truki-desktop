@@ -8,6 +8,66 @@ Like upstream, Truki is licensed under the
 [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html). The changes below were
 made on top of upstream in September 2026.
 
+## Branching
+
+Two kinds of branch, and nothing else:
+
+- **`main`** — what Truki ships. Every release is built from here.
+- **`feature/<name>`** — one branch per change, branched from `main` and merged
+  back when it works.
+
+```sh
+git switch main
+git pull
+git switch -c feature/vacation-status
+# ...work, commit...
+git switch main
+git merge feature/vacation-status
+git push
+git branch -d feature/vacation-status
+```
+
+Remotes are `origin` (this repo) and `upstream` (signalapp/Signal-Desktop).
+
+## Taking a new Signal release
+
+Signal ships roughly weekly, and builds expire after about 90 days, so this
+needs doing every few months whether or not you want the new features.
+
+```sh
+git fetch upstream --tags
+git switch main
+git switch -c update/v8.31.0          # whatever the new stable tag is
+git merge v8.31.0                     # merge the tag, not a branch
+```
+
+Merge conflicts will land in the handful of files Truki changes —
+`package.json`, `config/production.json`, and any feature code. Keep Truki's
+side for the identity and update settings; take upstream's side everywhere
+else. Then:
+
+```sh
+pnpm install                          # Electron version changes between releases
+pnpm run build
+# launch release/win-unpacked/Truki.exe and check it works
+git switch main
+git merge update/v8.31.0
+git push
+```
+
+Then cut the release as described below, using the new version number.
+
+Merging (rather than rebasing onto each new tag) keeps history intact and
+avoids force-pushes, so nobody's clone ever breaks. The cost is a messier
+graph, which does not matter here.
+
+Useful checks:
+
+```sh
+git log --oneline v8.27.0..main -- . ':!node_modules'   # what Truki changed
+git tag --list 'v*' --sort=-v:refname | grep -v -E 'alpha|beta' | head   # newest stable
+```
+
 ## Changes from upstream
 
 - **Name and identity.** `productName` is `Truki` and the application id is
@@ -28,7 +88,8 @@ made on top of upstream in September 2026.
   certificate, so Windows SmartScreen warns on install unless the certificate is
   trusted on the machine.
 
-- **Green message bubbles**, as a first visible change.
+Truki currently makes no visible changes to the interface; the green message
+bubbles were a test and have been reverted.
 
 ## Building a release
 
