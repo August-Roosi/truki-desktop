@@ -457,7 +457,8 @@
       ],
       "releaseInfo": {
         "vendor": {
-          "minOSVersion": "10.0.10240"
+          "minOSVersion": "10.0.10240",
+          "noDelay": "true"
         }
       },
       "signExts": [

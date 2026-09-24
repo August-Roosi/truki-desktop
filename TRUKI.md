@@ -110,6 +110,13 @@ gh release create v<version> \
 Sign the installer *during* packaging, never afterwards: `latest.yml` records
 the installer's hash, and signing it later makes the updater reject the build.
 
+Installed copies pick the new release up within about half an hour, or at the
+next restart. Upstream staggers updates by up to six hours; Truki opts out via
+`build.win.releaseInfo.vendor.noDelay` in `package.json`, which has to be the
+**string** `"true"` — the updater compares it to `'true'`, so a boolean is
+silently ignored (upstream's own `prepare-no-delay-release` script writes a
+boolean).
+
 The signing keys are deliberately not in this repository. The updater verifies
 `<installer>.sig` against `updatesPublicKey` before installing anything, so
 whoever holds `update-private-key.hex` controls what Truki installs.
