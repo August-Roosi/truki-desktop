@@ -2015,6 +2015,28 @@
         // [style] (✅ recommended) (🛠️ autofix) Disallow unnecessary whitespace in tailwind classes.
         "better-tailwindcss/no-unnecessary-whitespace": "error"
       }
+    },
+
+    // ---- Truki ----
+    // Truki-owned files carry a Truki copyright notice, not Signal's.
+    // enforce-license-comments requires the header to match
+    // /^ Copyright \d{4} Signal Messenger, LLC$/ exactly, which a fork's own
+    // files cannot satisfy without misattributing their authorship. The header
+    // is still required by AGENTS.md — only this rule is turned off here.
+    //
+    // Truki-owned files are identified by a `truki` segment in their path or a
+    // `Truki`/`truki` filename prefix. Keep that convention: it is also what
+    // makes Truki's footprint greppable when merging upstream.
+    {
+      "files": [
+        "**/truki/**/*",
+        "**/[Tt]ruki*.ts",
+        "**/[Tt]ruki*.tsx",
+        "**/[Tt]ruki*.mjs"
+      ],
+      "rules": {
+        "signal-desktop/enforce-license-comments": "off"
+      }
     }
   ]
 }

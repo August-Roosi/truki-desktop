@@ -125,6 +125,40 @@ pnpm run test-electron
   Do not hand-edit other locales.
 - Match the surrounding code's style. Do not introduce new patterns.
 
+### Naming Truki-owned files
+
+**Every Truki-owned file must have a `truki` path segment or a `Truki`/`truki`
+filename prefix** — `ts/sql/truki/ensureTrukiSchema.std.ts`,
+`ts/types/TrukiSpaceColor.std.ts`, `scripts/truki-sign-windows.mjs`.
+
+Two reasons. It makes Truki's whole footprint greppable when merging upstream,
+and `.oxlintrc.json` keys its Truki lint override off exactly this convention.
+A Truki file named otherwise will fail lint.
+
+### Copyright headers
+
+Truki-owned files use:
+
+```
+// Copyright 2026 Truki
+// SPDX-License-Identifier: AGPL-3.0-only
+```
+
+Upstream's `enforce-license-comments` rule demands
+`/^ Copyright \d{4} Signal Messenger, LLC$/` exactly, which a fork's own files
+cannot satisfy without misattributing authorship to Signal. `.oxlintrc.json`
+therefore disables that one rule for Truki-owned paths. **Do not "fix" a Truki
+header to say Signal Messenger, LLC**, and do not edit the rule itself.
+
+When editing an *upstream* file, leave its existing Signal header alone.
+
+### File suffixes are derived, not chosen
+
+`enforce-file-suffix` infers the correct suffix from what a file imports, so a
+file using no node-only API must be `.std.ts` even when it lives under `ts/sql/`.
+If lint reports `Invalid suffix`, rename the file to what it asks for rather
+than adding an ignore.
+
 ## Scope discipline
 
 Do the task in the plan and stop. If you find an unrelated bug, a tempting

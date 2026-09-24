@@ -45,6 +45,13 @@ implicitly include this section.**
   // Copyright 2026 Truki
   // SPDX-License-Identifier: AGPL-3.0-only
   ```
+  and **must have a `truki` path segment or a `Truki`/`truki` filename prefix**.
+  `.oxlintrc.json` keys its license-rule override off exactly that convention,
+  so a Truki file named otherwise fails lint. Do not change a Truki header to
+  say "Signal Messenger, LLC".
+- **File suffixes are derived from imports, not chosen.** A file using no
+  node-only API must be `.std.ts` even under `ts/sql/`. If lint reports
+  `Invalid suffix`, rename the file to what it asks for; never add an ignore.
 - New user-facing strings go in `_locales/en/messages.json` under an `icu:` key.
   Do not hand-edit other locale files.
 
@@ -66,6 +73,20 @@ ts/windows/main/attachments.preload.ts(205,32): TS2307: Cannot find module 'fs-x
 
 `fs-xattr` is a macOS-only optional dependency that is not installed on Windows.
 A task is "type-clean" when these two are the *only* errors remaining.
+
+**Known pre-existing `oxlint` errors** — 8 unused `oxlint-disable` directives,
+also not yours, also to be left alone:
+
+```
+ts/util/showConfirmationDialog.dom.tsx      (1)
+ts/util/longRunningTaskWrapper.dom.tsx      (1)
+ts/util/createIdenticon.preload.tsx         (1)
+ts/util/timelineUtil.std.ts                 (3)
+ts/util/getGroupMemberships.dom.ts          (2)
+```
+
+A task is "lint-clean" when these 8 are the only errors remaining. `oxlint`
+exits non-zero regardless, so read the output rather than the exit code.
 
 **On Windows, PowerShell may block `pnpm.ps1`.** Use `pnpm.cmd` instead. An
 inherited `ELECTRON_RUN_AS_NODE=1` also breaks `test-node`; clear it for the
