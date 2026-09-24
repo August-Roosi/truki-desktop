@@ -2,16 +2,15 @@
   "$schema": "./package.schema.json",
   "packageManager": "pnpm@11.5.2",
   "private": true,
-  "name": "signal-desktop",
-  "productName": "Signal",
+  "name": "truki-desktop",
+  "productName": "Truki",
   "description": "Private messaging from your desktop",
-  "desktopName": "signal.desktop",
+  "desktopName": "truki.desktop",
   "repository": "https://github.com/signalapp/Signal-Desktop.git",
   "version": "8.27.0",
   "license": "AGPL-3.0-only",
   "author": {
-    "name": "Signal Messenger, LLC",
-    "email": "support@signal.org"
+    "name": "Trüki"
   },
   "browserslist": "last 1 chrome versions",
   "main": "bundles/main.js",
@@ -350,7 +349,7 @@
     "node": "24.17.0"
   },
   "build": {
-    "appId": "org.whispersystems.signal-desktop",
+    "appId": "org.truki.desktop",
     "nativeRebuilder": "parallel",
     "mac": {
       "artifactName": "${name}-mac-${arch}-${version}.${ext}",
@@ -442,10 +441,8 @@
     },
     "win": {
       "signtoolOptions": {
-        "certificateSubjectName": "Signal Messenger, LLC",
-        "certificateSha1": "8D5E3CD800736C5E1FE459A1F5AA48287D4F6EC6",
-        "publisherName": "Signal Messenger, LLC",
-        "sign": "scripts/sign-windows.mjs",
+        "publisherName": "Truki",
+        "sign": "scripts/truki-sign-windows.mjs",
         "signingHashAlgorithms": [
           "sha256"
         ]
@@ -455,7 +452,7 @@
       "publish": [
         {
           "provider": "generic",
-          "url": "https://updates.signal.org/desktop"
+          "url": "https://github.com/August-Roosi/truki-desktop/releases/latest/download"
         }
       ],
       "releaseInfo": {
@@ -489,7 +486,7 @@
       }
     },
     "linux": {
-      "executableName": "signal-desktop",
+      "executableName": "truki-desktop",
       "category": "Network;InstantMessaging;Chat",
       "desktop": {
         "entry": {
