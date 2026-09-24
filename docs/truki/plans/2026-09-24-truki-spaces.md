@@ -56,6 +56,21 @@ pnpm run oxlint
 pnpm run test-node
 ```
 
+**Known pre-existing `check:types` errors on this checkout.** These are not
+yours, are unrelated to Spaces, and must be left alone:
+
+```
+ts/updater/got.main.ts(5,8): TS6133: 'config' is declared but its value is never read.
+ts/windows/main/attachments.preload.ts(205,32): TS2307: Cannot find module 'fs-xattr'
+```
+
+`fs-xattr` is a macOS-only optional dependency that is not installed on Windows.
+A task is "type-clean" when these two are the *only* errors remaining.
+
+**On Windows, PowerShell may block `pnpm.ps1`.** Use `pnpm.cmd` instead. An
+inherited `ELECTRON_RUN_AS_NODE=1` also breaks `test-node`; clear it for the
+test process only.
+
 ## Review Focus
 
 Input classes the spec implies but that no task's happy path exercises. Each has
@@ -98,7 +113,7 @@ a test pinned to the task that owns the code.
   - `ChatFolder` gains `emoji: string | null`, `color: number | null`,
     `hideFromAllChats: boolean`
 
-- [ ] **Step 1: Write the failing test for the ensure step**
+- [x] **Step 1: Write the failing test for the ensure step**
 
 Create `ts/test-node/sql/ensureTrukiSchema_test.node.ts`:
 
@@ -188,7 +203,7 @@ describe('ensureTrukiSchema', () => {
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [x] **Step 2: Run it and confirm it fails**
 
 ```sh
 pnpm run test-node -- --grep "ensureTrukiSchema"
@@ -200,7 +215,7 @@ If `@signalapp/sqlcipher` is not the right import for an in-memory test DB,
 find how an existing SQL test opens one (`grep -rn "new SQL(\|:memory:" ts/test-node ts/test-electron`)
 and match that, but keep the assertions identical.
 
-- [ ] **Step 3: Write the ensure step**
+- [x] **Step 3: Write the ensure step**
 
 Create `ts/sql/truki/ensureTrukiSchema.node.ts`:
 
@@ -269,7 +284,7 @@ Note: the table and column names are compile-time constants from
 `TRUKI_COLUMNS`, never user input, so interpolating them into the SQL string is
 safe. `PRAGMA` and `ALTER TABLE` cannot take bound parameters for identifiers.
 
-- [ ] **Step 4: Run the test and confirm it passes**
+- [x] **Step 4: Run the test and confirm it passes**
 
 ```sh
 pnpm run test-node -- --grep "ensureTrukiSchema"
@@ -277,7 +292,7 @@ pnpm run test-node -- --grep "ensureTrukiSchema"
 
 Expected: 5 passing.
 
-- [ ] **Step 5: Call it from the end of `updateSchema`**
+- [x] **Step 5: Call it from the end of `updateSchema`**
 
 In `ts/sql/migrations/index.node.ts`, add the import alongside the existing
 imports:
@@ -298,7 +313,7 @@ loop and after `DataWriter.ensureMessageInsertTriggersAreEnabled(db)` /
 **Do not add anything to `SCHEMA_VERSIONS`.** This is the whole point of the
 design — re-read the comment block in `ensureTrukiSchema.node.ts` if tempted.
 
-- [ ] **Step 6: Add the colour palette**
+- [x] **Step 6: Add the colour palette**
 
 Create `ts/types/TrukiSpaceColor.std.ts`:
 
@@ -350,7 +365,7 @@ export function toCssHex(color: number): string {
 }
 ```
 
-- [ ] **Step 7: Add the fields to the ChatFolder type**
+- [x] **Step 7: Add the fields to the ChatFolder type**
 
 In `ts/types/ChatFolder.std.ts`:
 
@@ -427,7 +442,7 @@ export function isSameChatFolderParams(
 Also extend `CHAT_FOLDER_PRESETS` entries if `tsc` reports them as missing
 `hideFromAllChats` — they spread `CHAT_FOLDER_DEFAULTS`, so they should be fine.
 
-- [ ] **Step 8: Typecheck, lint, test**
+- [x] **Step 8: Typecheck, lint, test**
 
 ```sh
 pnpm run check:types
@@ -435,12 +450,20 @@ pnpm run oxlint
 pnpm run test-node
 ```
 
-`check:types` will now report errors in `ts/sql/server/chatFolders.std.ts` and
-`ts/services/storageRecordOps.preload.ts` because those construct `ChatFolder`
-objects without the new fields. **That is expected** — Tasks 2 and 3 fix them.
-Every *other* error must be zero. Do not fix the SQL and storage errors here.
+`check:types` will now report errors in four files, because each constructs a
+`ChatFolder` or `ChatFolderParams` literal without the new fields:
 
-- [ ] **Step 9: Commit**
+```
+ts/sql/server/chatFolders.std.ts                                (4x)  -> Task 2
+ts/services/backups/import.preload.ts                                 -> Task 2
+ts/components/preferences/chatFolders/PreferencesChatFoldersPage.dom.tsx -> Task 2
+ts/services/storageRecordOps.preload.ts                               -> Task 3
+```
+
+**That is expected.** Do not fix any of them here. Any error *outside* that list
+and outside the two pre-existing ones in Global Constraints is a real problem.
+
+- [x] **Step 9: Commit**
 
 ```sh
 git add ts/sql/truki ts/types/TrukiSpaceColor.std.ts ts/types/ChatFolder.std.ts \
@@ -454,6 +477,8 @@ git commit -m "truki(spaces): add emoji/color/hideFromAllChats schema foundation
 
 **Files:**
 - Modify: `ts/sql/server/chatFolders.std.ts`
+- Modify: `ts/services/backups/import.preload.ts:4051`
+- Modify: `ts/components/preferences/chatFolders/PreferencesChatFoldersPage.dom.tsx:377`
 - Test: `ts/test-node/sql/trukiChatFolderColumns_test.node.ts` (create)
 
 **Interfaces:**
@@ -601,20 +626,46 @@ so the UPDATE must carry it. Add to that `SET` clause:
 
 Leave every filter field out. General's filter behaviour must stay locked.
 
-- [ ] **Step 8: Run the tests**
+- [ ] **Step 8: Satisfy the two other `ChatFolder` constructors**
+
+Task 1 made three fields required, so every place that builds a `ChatFolder` or
+`ChatFolderParams` literal must supply them. Two sit outside the SQL layer:
+
+`ts/services/backups/import.preload.ts:4051` — add the defaults to the object
+literal:
+
+```ts
+      hideFromAllChats: false,
+      emoji: null,
+      color: null,
+```
+
+Carrying these fields through the backup proto is **out of scope** (spec §9):
+storage service sync repopulates them after a restore. This is a type fix only —
+do not add fields to `protos/backups.proto`.
+
+`ts/components/preferences/chatFolders/PreferencesChatFoldersPage.dom.tsx:377` —
+add `emoji: null` and `color: null` to the params literal. Task 7 builds the
+real pickers on top; this is the minimal fix that keeps the tree type-clean in
+between.
+
+- [ ] **Step 9: Run the tests**
 
 ```sh
 pnpm run test-node -- --grep "trukiChatFolderColumns"
 pnpm run check:types
 ```
 
-Expected: 4 passing. `check:types` still reports errors only in
-`ts/services/storageRecordOps.preload.ts`, fixed in Task 3.
+Expected: 4 passing. `check:types` now reports only
+`ts/services/storageRecordOps.preload.ts` (fixed in Task 3) plus the two
+pre-existing errors listed in Global Constraints.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```sh
-git add ts/sql/server/chatFolders.std.ts ts/test-node/sql/trukiChatFolderColumns_test.node.ts
+git add ts/sql/server/chatFolders.std.ts ts/services/backups/import.preload.ts \
+        ts/components/preferences/chatFolders/PreferencesChatFoldersPage.dom.tsx \
+        ts/test-node/sql/trukiChatFolderColumns_test.node.ts
 git commit -m "truki(spaces): persist emoji/color/hideFromAllChats in sqlite"
 ```
 
@@ -749,8 +800,8 @@ pnpm run check:types
 pnpm run oxlint
 ```
 
-Expected: 4 passing, and `check:types` now **clean** — all Task 1 fallout is
-resolved.
+Expected: 4 passing, and `check:types` now clean apart from the two pre-existing
+errors listed in Global Constraints — all Task 1 fallout is resolved.
 
 - [ ] **Step 8: Commit**
 

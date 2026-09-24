@@ -85,6 +85,25 @@ pnpm run oxlint
 pnpm run test-node
 ```
 
+### Known pre-existing failures — leave them alone
+
+These are already broken on `main`, are unrelated to any current work, and must
+not be "fixed" as a drive-by:
+
+```
+ts/updater/got.main.ts(5,8): TS6133: 'config' is declared but its value is never read.
+ts/windows/main/attachments.preload.ts(205,32): TS2307: Cannot find module 'fs-xattr'
+```
+
+`fs-xattr` is a macOS-only optional dependency, absent on Windows. Treat the
+tree as type-clean when these two are the only errors left.
+
+### Windows environment
+
+- PowerShell may block `pnpm.ps1`. Use `pnpm.cmd`.
+- An inherited `ELECTRON_RUN_AS_NODE=1` breaks `test-node`. Clear it for the
+  test process only, not globally.
+
 Report what actually ran and what it printed. **Never claim a command passed
 without running it.** If something fails and you cannot fix it, say so plainly
 and stop — do not describe the work as complete.
