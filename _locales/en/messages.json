@@ -2310,6 +2310,18 @@
     "messageformat": "Edit folder",
     "description": "Preferences > Create/Edit Chat Folder Page > Title (When editing existing chat folder)"
   },
+  "icu:Preferences__EditChatFolderPage__Icon__Label": {
+    "messageformat": "Icon",
+    "description": "Label for the emoji picker that sets a space's icon."
+  },
+  "icu:Preferences__EditChatFolderPage__Color__Label": {
+    "messageformat": "Color",
+    "description": "Label for the colour picker that sets a space's accent colour."
+  },
+  "icu:Preferences__EditChatFolderPage__Color__None": {
+    "messageformat": "Default",
+    "description": "Colour picker option meaning the space uses the default accent."
+  },
   "icu:Preferences__EditChatFolderPage__FolderNameField__Label": {
     "messageformat": "Folder name",
     "description": "Preferences > Edit Chat Folder Page > Folder Name Field > Label"
@@ -2393,6 +2405,14 @@
   "icu:Preferences__EditChatFolderPage__IncludeMutedChatsCheckbox__Label": {
     "messageformat": "Include muted chats",
     "description": "Preferences > Edit Chat Folder Page > Include Muted Chats Checkbox > Label"
+  },
+  "icu:Preferences__EditChatFolderPage__HideFromGeneral__Label": {
+    "messageformat": "Hide these chats from General",
+    "description": "Checkbox label. When on, this space's chats do not appear in the General space."
+  },
+  "icu:Preferences__EditChatFolderPage__HideFromGeneral__Unavailable": {
+    "messageformat": "Not available for spaces that include all chats of a type",
+    "description": "Explains why the hide-from-General checkbox is disabled."
   },
   "icu:Preferences__EditChatFolderPage__DeleteFolderButton": {
     "messageformat": "Delete folder",

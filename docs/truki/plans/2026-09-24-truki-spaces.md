@@ -1514,7 +1514,7 @@ git commit -m "truki(spaces): move the space selector into the left pane header"
   `ChatFolderParams` with `emoji`/`color`/`hideFromAllChats`.
 - Produces: `TrukiSpaceColorPicker` — `{ value: number | null; onChange: (value: number | null) => void; i18n: LocalizerType }`
 
-- [ ] **Step 1: Write the colour picker**
+- [x] **Step 1: Write the colour picker**
 
 Create `ts/components/preferences/chatFolders/TrukiSpaceColorPicker.dom.tsx`: a
 row of round swatches over `TrukiSpaceColor.PALETTE`, plus a "no colour" option
@@ -1523,7 +1523,7 @@ type="button">` with an `aria-label`, and the row is keyboard navigable.
 
 Style with `tw()` and inline `backgroundColor` from `toCssHex`.
 
-- [ ] **Step 2: Add the three controls to the edit page**
+- [x] **Step 2: Add the three controls to the edit page**
 
 In `PreferencesEditChatFoldersPage.dom.tsx`:
 
@@ -1565,7 +1565,7 @@ In `PreferencesEditChatFoldersPage.dom.tsx`:
 All three feed the same `ChatFolderParams` the page already tracks, so save and
 validation need no changes.
 
-- [ ] **Step 3: Make General editable**
+- [x] **Step 3: Make General editable**
 
 In `PreferencesChatFoldersPage.dom.tsx` (~line 419), the ALL folder currently
 renders as a non-interactive `ListBoxItem`. Give it the same
@@ -1586,7 +1586,7 @@ On save, General must keep its filter params locked. Confirm the save path
 spreads `ALL_CHATS_FOLDER_REQUIRED_PARAMS` over the filter fields for ALL
 folders, and add that spread if it does not.
 
-- [ ] **Step 4: Add the remaining strings**
+- [x] **Step 4: Add the remaining strings**
 
 Add to `_locales/en/messages.json`, matching the file's existing key style:
 
@@ -1633,7 +1633,7 @@ Walk the whole feature:
    (Review Focus item 2).
 8. Restart the app. → every name, icon, colour and checkbox survives.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```sh
 git add ts/components/preferences/chatFolders _locales/en/messages.json \

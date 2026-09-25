@@ -14,8 +14,10 @@ import { PreferencesSelectChatsDialog } from '../PreferencesSelectChatsDialog.do
 import { Avatar, AvatarSize } from '../../Avatar.dom.tsx';
 import { PreferencesContent } from '../../Preferences.dom.tsx';
 import {
+  ALL_CHATS_FOLDER_REQUIRED_PARAMS,
   CHAT_FOLDER_NAME_MAX_CHAR_LENGTH,
   ChatFolderParamsSchema,
+  ChatFolderType,
   isSameChatFolderParams,
   validateChatFolderParams,
 } from '../../../types/ChatFolder.std.ts';
@@ -47,6 +49,8 @@ import {
 import { AxoButton } from '../../../axo/AxoButton.dom.tsx';
 import { AxoAlertDialog } from '../../../axo/AxoAlertDialog.dom.tsx';
 import { AxoConfirmDialog } from '../../../axo/AxoConfirmDialog.dom.tsx';
+import type { Emoji } from '../../../axo/emoji.std.ts';
+import { TrukiSpaceColorPicker } from './TrukiSpaceColorPicker.dom.tsx';
 
 export type PreferencesEditChatFolderPageProps = Readonly<{
   i18n: LocalizerType;
@@ -94,6 +98,12 @@ export function PreferencesEditChatFolderPage(
   const [showInclusionsDialog, setShowInclusionsDialog] = useState(false);
   const [showExclusionsDialog, setShowExclusionsDialog] = useState(false);
 
+  const isAllChatFolder =
+    chatFolderParams.folderType === ChatFolderType.ALL;
+  const isHideFromGeneralUnavailable =
+    chatFolderParams.includeAllIndividualChats ||
+    chatFolderParams.includeAllGroupChats;
+
   const normalizedChatFolderParams = useMemo(() => {
     return parseStrict(ChatFolderParamsSchema, chatFolderParams);
   }, [chatFolderParams]);
@@ -112,7 +122,10 @@ export function PreferencesEditChatFolderPage(
   });
 
   const isValid = useMemo(() => {
-    return validateChatFolderParams(normalizedChatFolderParams);
+    return (
+      normalizedChatFolderParams.folderType === ChatFolderType.ALL ||
+      validateChatFolderParams(normalizedChatFolderParams)
+    );
   }, [normalizedChatFolderParams]);
 
   const handleNameChange = useCallback((newName: string) => {
@@ -123,21 +136,23 @@ export function PreferencesEditChatFolderPage(
 
   const handleSelectEmoji = useCallback((emojiSelection: FunEmojiSelection) => {
     setChatFolderParams(prevParams => {
-      strictAssert(inputRef.current, 'Missing input ref');
-      const input = inputRef.current;
-      const { selectionStart, selectionEnd } = input;
-      const emoji = emojiSelection.emoji;
+      return { ...prevParams, emoji: emojiSelection.emoji };
+    });
+  }, []);
 
-      let newName: string;
-      if (selectionStart == null || selectionEnd == null) {
-        newName = `${prevParams.name}${emoji}`;
-      } else {
-        const before = prevParams.name.slice(0, selectionStart);
-        const after = prevParams.name.slice(selectionEnd);
-        newName = `${before}${emoji}${after}`;
-      }
+  const handleFunEmojiPickerOpenChange = useCallback((open: boolean) => {
+    setEmojiPickerOpen(open);
+  }, []);
 
-      return { ...prevParams, name: newName };
+  const handleColorChange = useCallback((color: number | null) => {
+    setChatFolderParams(prevParams => {
+      return { ...prevParams, color };
+    });
+  }, []);
+
+  const handleHideFromGeneralChange = useCallback((newValue: boolean) => {
+    setChatFolderParams(prevParams => {
+      return { ...prevParams, hideFromAllChats: newValue };
     });
   }, []);
 
@@ -174,10 +189,20 @@ export function PreferencesEditChatFolderPage(
     strictAssert(isChanged, 'tried saving when unchanged');
     strictAssert(isValid, 'tried saving when invalid');
 
+    const chatFolderParamsToSave =
+      normalizedChatFolderParams.folderType === ChatFolderType.ALL
+        ? {
+            ...ALL_CHATS_FOLDER_REQUIRED_PARAMS,
+            name: normalizedChatFolderParams.name,
+            emoji: normalizedChatFolderParams.emoji,
+            color: normalizedChatFolderParams.color,
+          }
+        : normalizedChatFolderParams;
+
     if (existingChatFolderId != null) {
-      onUpdateChatFolder(existingChatFolderId, normalizedChatFolderParams);
+      onUpdateChatFolder(existingChatFolderId, chatFolderParamsToSave);
     } else {
-      onCreateChatFolder(normalizedChatFolderParams, false);
+      onCreateChatFolder(chatFolderParamsToSave, false);
     }
 
     didSaveOrDiscardChangesRef.current = true;
@@ -282,18 +307,47 @@ export function PreferencesEditChatFolderPage(
                 )}
                 maxLengthCount={CHAT_FOLDER_NAME_MAX_CHAR_LENGTH}
                 whenToShowRemainingCount={CHAT_FOLDER_NAME_MAX_CHAR_LENGTH - 10}
-              >
-                <FunEmojiPicker
-                  open={emojiPickerOpen}
-                  onOpenChange={setEmojiPickerOpen}
-                  onSelectEmoji={handleSelectEmoji}
-                  closeOnSelect
-                >
-                  <FunEmojiPickerButton i18n={i18n} />
-                </FunEmojiPicker>
-              </Input>
+              />
             </div>
           </SettingsRow>
+          <SettingsRow
+            title={i18n(
+              'icu:Preferences__EditChatFolderPage__Icon__Label'
+            )}
+          >
+            <div className="Preferences__padding">
+              <FunEmojiPicker
+                open={emojiPickerOpen}
+                onOpenChange={handleFunEmojiPickerOpenChange}
+                placement="bottom"
+                onSelectEmoji={handleSelectEmoji}
+                closeOnSelect
+                theme={props.theme}
+              >
+                <FunEmojiPickerButton
+                  i18n={i18n}
+                  selectedEmoji={
+                    chatFolderParams.emoji as Emoji.Variant | null
+                  }
+                />
+              </FunEmojiPicker>
+            </div>
+          </SettingsRow>
+          <SettingsRow
+            title={i18n(
+              'icu:Preferences__EditChatFolderPage__Color__Label'
+            )}
+          >
+            <div className="Preferences__padding">
+              <TrukiSpaceColorPicker
+                i18n={i18n}
+                value={chatFolderParams.color}
+                onChange={handleColorChange}
+              />
+            </div>
+          </SettingsRow>
+          {!isAllChatFolder && (
+            <>
           <SettingsRow
             title={i18n(
               'icu:Preferences__EditChatFolderPage__IncludedChatsSection__Title'
@@ -452,8 +506,27 @@ export function PreferencesEditChatFolderPage(
                 />
               }
             />
+            <SettingsControl
+              left={i18n(
+                'icu:Preferences__EditChatFolderPage__HideFromGeneral__Label'
+              )}
+              description={
+                isHideFromGeneralUnavailable
+                  ? i18n(
+                      'icu:Preferences__EditChatFolderPage__HideFromGeneral__Unavailable'
+                    )
+                  : undefined
+              }
+              right={
+                <AxoSwitch.Root
+                  checked={chatFolderParams.hideFromAllChats}
+                  disabled={isHideFromGeneralUnavailable}
+                  onCheckedChange={handleHideFromGeneralChange}
+                />
+              }
+            />
           </SettingsRow>
-          {props.existingChatFolderId != null && (
+          {props.existingChatFolderId != null && !isAllChatFolder && (
             <SettingsRow>
               <div className="Preferences__padding">
                 <AxoAlertDialog.Root>
@@ -522,6 +595,8 @@ export function PreferencesEditChatFolderPage(
               }}
               showChatTypes={false}
             />
+          )}
+            </>
           )}
           {blocker.state === 'blocked' && (
             <SaveChangesFolderDialog
