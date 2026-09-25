@@ -134,8 +134,12 @@ number quoted in a plan is right: re-measure, and say so if it differs.
 
   A healthy run is ~2400 passing, 12 pending.
 - Stopping a running Storybook is required before `pnpm install` can replace
-  native modules; Windows will not overwrite a loaded `.node` file. Restart it
-  afterwards with `pnpm run storybook`.
+  native modules; Windows will not overwrite a loaded `.node` file.
+- **Storybook's script is `pnpm run dev`**, not `pnpm run storybook` — that name
+  does not exist and pnpm will suggest `test:storybook`, which is the CI runner,
+  not the dev server. It serves on port 6006 and takes a minute or two to
+  compile after the process starts, so poll
+  `curl -sf http://127.0.0.1:6006/` rather than trusting the log.
 
 Report what actually ran and what it printed. **Never claim a command passed
 without running it.** If something fails and you cannot fix it, say so plainly
