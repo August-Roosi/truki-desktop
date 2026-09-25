@@ -141,6 +141,32 @@ Report what actually ran and what it printed. **Never claim a command passed
 without running it.** If something fails and you cannot fix it, say so plainly
 and stop — do not describe the work as complete.
 
+### Quote the summary line, do not characterise it
+
+For every verification command, **paste its literal final summary line** into
+your report:
+
+```
+✖ 15 problems (15 errors, 0 warnings)      <- oxlint
+2417 passing (56s) / 12 pending            <- test-node
+```
+
+Do not write "emitted zero diagnostics", "no failure report", "completed
+successfully" or any other paraphrase. Those have each been wrong here: a run
+reported as "zero diagnostics" was in fact 15 errors, three of them newly
+introduced by that very task.
+
+If a runner swallowed the totals, **re-run it until you have them.** A run whose
+result you could not read is a run that did not happen. Say "I could not obtain
+the totals" rather than describing the outcome you assume.
+
+The baseline counts above are what "clean" means. If your number is higher, the
+extra ones are yours — find them with:
+
+```sh
+pnpm.cmd run oxlint 2>&1 | grep -c error
+```
+
 For anything touching SQL, storage service, or the left pane, also run:
 
 ```sh
