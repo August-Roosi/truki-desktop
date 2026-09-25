@@ -218,6 +218,7 @@ export type PropsType = {
   renderCrashReportDialog: () => JSX.Element;
   renderExpiredBuildDialog: (_: DialogExpiredBuildPropsType) => JSX.Element;
   renderLeftPaneChatFolders: () => JSX.Element;
+  renderTrukiSpaceBar?: () => JSX.Element | null;
   renderNotificationProfilesMenu: () => JSX.Element;
   renderToastManager: (_: Readonly<SmartToastManagerPropsType>) => JSX.Element;
 } & LookupConversationWithoutServiceIdActionsType;
@@ -274,6 +275,7 @@ export function LeftPane({
   renderCrashReportDialog,
   renderExpiredBuildDialog,
   renderLeftPaneChatFolders,
+  renderTrukiSpaceBar,
   renderMessageSearchResult,
   renderConversationListItemContextMenu,
   renderNetworkStatus,
@@ -808,6 +810,7 @@ export function LeftPane({
   return (
     <NavSidebar
       title={i18n('icu:LeftPane--chats')}
+      titleSlot={renderTrukiSpaceBar?.()}
       hideHeader={hideHeader}
       i18n={i18n}
       otherTabsUnreadCount={otherTabsUnreadCount}

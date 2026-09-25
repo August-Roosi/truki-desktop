@@ -1337,7 +1337,7 @@ git commit -m "truki(spaces): apply the selected space's accent colour"
   `ts/components/leftPane/LeftPaneChatFolders.dom.tsx`, which already receives
   everything needed. Read that file first and reuse its prop shape verbatim.
 
-- [ ] **Step 1: Add the optional slot to NavSidebar**
+- [x] **Step 1: Add the optional slot to NavSidebar**
 
 In `ts/components/NavSidebar.dom.tsx`, add to the props type, next to
 `title: string;`:
@@ -1365,7 +1365,7 @@ Destructure it alongside `title`, then change the `<h1>` block (~line 216) to:
 The `<h1>` markup itself is unchanged — it is only wrapped. Every other
 `NavSidebar` consumer passes no `titleSlot` and is unaffected.
 
-- [ ] **Step 2: Write the component's Storybook stories first**
+- [x] **Step 2: Write the component's Storybook stories first**
 
 Create `ts/components/leftPane/TrukiSpaceBar.dom.stories.tsx` covering
 **Review Focus items 3 and 4**:
@@ -1386,7 +1386,7 @@ Create `ts/components/leftPane/TrukiSpaceBar.dom.stories.tsx` covering
 
 Model the story file's boilerplate on `LeftPane.dom.stories.tsx`.
 
-- [ ] **Step 3: Write the component**
+- [x] **Step 3: Write the component**
 
 Create `ts/components/leftPane/TrukiSpaceBar.dom.tsx`.
 
@@ -1443,7 +1443,7 @@ Walk every story. Confirm specifically: `GeneralNotRenamed` shows a letter, not
 a blank; `MultiCodepointEmoji` shows whole glyphs; `LongName` truncates without
 pushing the actions off the header.
 
-- [ ] **Step 5: Wire it in**
+- [x] **Step 5: Wire it in**
 
 In `ts/state/smart/LeftPane.preload.tsx`, add a `renderTrukiSpaceBar` render
 prop beside the existing `renderLeftPaneChatFolders`, feeding `TrukiSpaceBar`
@@ -1466,7 +1466,7 @@ old strip:
 Leave the `renderLeftPaneChatFolders` render prop and its plumbing in place,
 unused. Deleting it is a bigger upstream diff than leaving it.
 
-- [ ] **Step 6: Keep the narrow-width fallback**
+- [x] **Step 6: Keep the narrow-width fallback**
 
 At `WidthBreakpoint.Narrow`, `TrukiSpaceBar` must fall back to upstream's
 `AxoSelect` dropdown — copy that branch from `LeftPaneChatFolders.dom.tsx`. The
@@ -1487,7 +1487,7 @@ In the app: create two chat folders in settings, confirm the pills appear in the
 header where "Chats" was, that selecting one expands it and collapses the other,
 and that the old strip below the search box is gone.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```sh
 git add ts/components/leftPane/TrukiSpaceBar.dom.tsx \

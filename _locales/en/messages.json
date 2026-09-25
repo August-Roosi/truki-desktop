@@ -448,12 +448,12 @@
     "description": "Left Pane > Inbox > Chat List > Empty View (when you have a custom chat folder selected) > Folder Settings Button"
   },
   "icu:LeftPaneChatFolders__ItemLabel--All--Short": {
-    "messageformat": "All",
-    "description": "Left Pane > Inbox > Chat List > Chat Folders > Item Label > All chats (needs to fit in very small space)"
+    "messageformat": "General",
+    "description": "Left Pane > Inbox > Chat List > Chat Folders > Item Label > General (needs to fit in very small space)"
   },
   "icu:LeftPaneChatFolders__ItemLabel--All": {
-    "messageformat": "All chats",
-    "description": "Left Pane > Inbox > Chat List > Chat Folders > Item Label > All chats"
+    "messageformat": "General",
+    "description": "Left Pane > Inbox > Chat List > Chat Folders > Item Label > General"
   },
   "icu:LeftPaneChatFolders__ItemUnreadBadge__AccessibleLabel": {
     "messageformat": "{count, plural, one {# Unread Message} other {# Unread Messages}}",

@@ -66,6 +66,8 @@ export type NavSidebarProps = Readonly<{
   requiresFullWidth: boolean;
   savePreferredLeftPaneWidth: (width: number) => void;
   title: string;
+  /** Truki: replaces the <h1> title when provided. Chats tab only. */
+  titleSlot?: ReactNode;
   otherTabsUnreadCount: number;
   renderToastManager: (_: SmartToastManagerPropsType) => JSX.Element;
 }>;
@@ -90,6 +92,7 @@ export function NavSidebar({
   requiresFullWidth,
   savePreferredLeftPaneWidth,
   title,
+  titleSlot,
   otherTabsUnreadCount,
   renderToastManager,
 }: NavSidebarProps): JSX.Element {
@@ -213,14 +216,16 @@ export function NavSidebar({
                     </span>
                   </button>
                 )}
-                <h1
-                  className={classNames('NavSidebar__HeaderTitle', {
-                    'NavSidebar__HeaderTitle--withBackButton': onBack != null,
-                  })}
-                  aria-live="assertive"
-                >
-                  {title}
-                </h1>
+                {titleSlot ?? (
+                  <h1
+                    className={classNames('NavSidebar__HeaderTitle', {
+                      'NavSidebar__HeaderTitle--withBackButton': onBack != null,
+                    })}
+                    aria-live="assertive"
+                  >
+                    {title}
+                  </h1>
+                )}
                 {actions && (
                   <div className="NavSidebar__HeaderActions">{actions}</div>
                 )}
