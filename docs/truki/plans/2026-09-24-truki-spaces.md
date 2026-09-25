@@ -1140,7 +1140,7 @@ git commit -m "truki(spaces): let a space hide its members from General"
   from `ts/state/selectors/chatFolders.std.ts`.
 - Produces: `useTrukiSpaceAccent(color: number | null): void`
 
-- [ ] **Step 1: Write the stylesheet**
+- [x] **Step 1: Write the stylesheet**
 
 Create `stylesheets/_truki-spaces.scss`:
 
@@ -1207,13 +1207,13 @@ grep -n "axo-color-fill-accent\|axo-color-label-accent" ts/axo/_tailwind-theme/c
 If a token in the list above does not exist, drop it. If one exists that is not
 listed, add it. **Do not edit `colors.css` itself** — it is an upstream file.
 
-- [ ] **Step 2: Register the stylesheet**
+- [x] **Step 2: Register the stylesheet**
 
 In `stylesheets/manifest.scss`, add the new partial alongside the existing
 imports, following whatever syntax that file already uses (`@use` or `@import`).
 Add it **last** among the Truki-relevant entries so its overrides win.
 
-- [ ] **Step 3: Write the hook**
+- [x] **Step 3: Write the hook**
 
 Create `ts/hooks/useTrukiSpaceAccent.dom.ts`:
 
@@ -1254,7 +1254,7 @@ export function useTrukiSpaceAccent(color: number | null): void {
 }
 ```
 
-- [ ] **Step 4: Call it**
+- [x] **Step 4: Call it**
 
 In `ts/state/smart/LeftPane.preload.tsx`, inside the component, add:
 
@@ -1287,7 +1287,7 @@ attribute and they return to blue. If nothing changes, the stylesheet is not
 being loaded — check the `manifest.scss` entry and that the build regenerated
 `stylesheets/manifest.css`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```sh
 git add stylesheets/_truki-spaces.scss stylesheets/manifest.scss \

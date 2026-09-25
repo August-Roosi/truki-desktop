@@ -1,0 +1,56 @@
+// Copyright 2026 Truki
+// SPDX-License-Identifier: AGPL-3.0-only
+
+// Truki: the selected space's accent. One variable is set on <body> by
+// useTrukiSpaceAccent; every Axo accent token is derived from it here, so there
+// is no JS colour maths and no extra stored shades.
+//
+// No attribute means no override, which is stock Signal blue. A user who never
+// sets a space colour sees no change at all.
+
+body[data-truki-space-accent] {
+  --axo-color-fill-accent: var(--truki-space-accent);
+  --axo-color-fill-accent-pressed: color-mix(
+    in oklab,
+    var(--truki-space-accent) 88%,
+    black
+  );
+  --axo-color-fill-accent-bright: color-mix(
+    in oklab,
+    var(--truki-space-accent) 45%,
+    white
+  );
+  --axo-color-fill-accent-bright-pressed: color-mix(
+    in oklab,
+    var(--truki-space-accent) 38%,
+    white
+  );
+  --axo-color-fill-accent-tint: color-mix(
+    in oklab,
+    var(--truki-space-accent) 10%,
+    transparent
+  );
+  --axo-color-fill-accent-tint-pressed: color-mix(
+    in oklab,
+    var(--truki-space-accent) 16%,
+    transparent
+  );
+  --axo-color-label-accent: color-mix(
+    in oklab,
+    var(--truki-space-accent) 85%,
+    black
+  );
+  --axo-color-label-accent-disabled: color-mix(
+    in oklab,
+    var(--truki-space-accent) 25%,
+    transparent
+  );
+}
+
+body[data-truki-space-accent].dark-theme {
+  --axo-color-label-accent: color-mix(
+    in oklab,
+    var(--truki-space-accent) 70%,
+    white
+  );
+}

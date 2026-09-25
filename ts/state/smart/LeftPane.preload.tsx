@@ -133,6 +133,7 @@ import { NavTab, SettingsPage } from '../../types/Nav.std.ts';
 import { SmartNotificationProfilesMenu } from './NotificationProfilesMenu.preload.tsx';
 import { getActiveProfile } from '../selectors/notificationProfiles.dom.ts';
 import type { StateSelector } from '../types.std.ts';
+import { useTrukiSpaceAccent } from '../../hooks/useTrukiSpaceAccent.dom.ts';
 import {
   DialogClockSkew,
   type PropsType as DialogClockSkewPropsType,
@@ -338,6 +339,7 @@ export const SmartLeftPane = memo(function SmartLeftPane({
   const navTabsCollapsed = useSelector(getNavTabsCollapsed);
   const preferredWidthFromStorage = useSelector(getPreferredLeftPaneWidth);
   const selectedChatFolder = useSelector(getSelectedChatFolder);
+  useTrukiSpaceAccent(selectedChatFolder?.color ?? null);
   const selectedConversationId = useSelector(getSelectedConversationId);
   const showArchived = useSelector(getShowArchived);
   const targetedMessage = useSelector(getTargetedMessage);
