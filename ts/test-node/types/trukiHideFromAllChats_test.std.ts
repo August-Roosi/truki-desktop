@@ -26,7 +26,7 @@ function folder(overrides: Partial<ChatFolder>): ChatFolder {
     storageUnknownFields: null,
     storageNeedsSync: false,
     ...overrides,
-  } as ChatFolder;
+  };
 }
 
 const conversation = {
