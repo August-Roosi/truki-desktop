@@ -1266,7 +1266,28 @@ useTrukiSpaceAccent(selectedChatFolder?.color ?? null);
 If `selectedChatFolder` is already selected in that component, reuse it rather
 than selecting it twice.
 
-- [ ] **Step 5: Verify by eye**
+- [x] **Step 5: Verify the cascade** *(done 2026-09-25 — see note below)*
+
+The mechanism was verified in a real browser instead of by eye, by loading
+`manifest.css` and `tailwind.css` in the same order `background.html` does and
+reading the painted colour off a probe element:
+
+| state | `--axo-color-fill-accent` painted |
+| --- | --- |
+| no attribute | `rgb(70, 85, 255)` — stock Signal blue |
+| attribute + `#3a7d44` | `rgb(58, 125, 68)` — the space colour |
+| attribute removed | `rgb(70, 85, 255)` — restored |
+
+This matters because the base token is defined in `tailwind.css`, which loads
+*after* `manifest.css`. The override wins on specificity
+(`body[data-truki-space-accent]` over `:root`) rather than on order, and the
+test confirms that rather than assuming it.
+
+**Still outstanding:** an in-app visual pass. Do it at the end of Task 7, when
+the colour picker exists and a colour can be set through the UI rather than the
+dev console.
+
+<details><summary>Original step text</summary>
 
 ```sh
 pnpm run check:types
@@ -1286,6 +1307,8 @@ Expected: the compose button, selected chat row and links turn green. Remove the
 attribute and they return to blue. If nothing changes, the stylesheet is not
 being loaded — check the `manifest.scss` entry and that the build regenerated
 `stylesheets/manifest.css`.
+
+</details>
 
 - [x] **Step 6: Commit**
 
