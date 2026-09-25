@@ -151,6 +151,22 @@ export function GeneralNotRenamed(): JSX.Element {
   return renderSpaceBar([general, work], work);
 }
 
+export function GeneralRenamed(): JSX.Element {
+  const renamedGeneral = makeSpace({
+    id: 'general',
+    folderType: ChatFolderType.ALL,
+    position: 0,
+    name: 'Home',
+    emoji: null,
+  });
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      {renderSpaceBar([renamedGeneral, work], work)}
+      {renderSpaceBar([renamedGeneral, work], renamedGeneral)}
+    </div>
+  );
+}
+
 export function MultiCodepointEmoji(): JSX.Element {
   const family = makeSpace({
     id: 'family',

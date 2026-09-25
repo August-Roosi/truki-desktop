@@ -72,14 +72,15 @@ function getChatFolderLabel(
   chatFolder: ChatFolder,
   preferShort: boolean
 ): ReactNode {
+  const name = chatFolder.name.trim();
+  if (name !== '') {
+    return <UserText text={name} />;
+  }
   if (chatFolder.folderType === ChatFolderType.ALL) {
     if (preferShort) {
-      return i18n('icu:LeftPaneChatFolders__ItemLabel--All--Short');
+      return i18n('icu:TrukiSpaceBar__GeneralLabel--Short');
     }
-    return i18n('icu:LeftPaneChatFolders__ItemLabel--All');
-  }
-  if (chatFolder.folderType === ChatFolderType.CUSTOM) {
-    return <UserText text={chatFolder.name} />;
+    return i18n('icu:TrukiSpaceBar__GeneralLabel');
   }
   return '';
 }
@@ -88,10 +89,14 @@ function getChatFolderDisplayLabel(
   i18n: LocalizerType,
   chatFolder: ChatFolder
 ): string {
-  if (chatFolder.folderType === ChatFolderType.ALL) {
-    return i18n('icu:LeftPaneChatFolders__ItemLabel--All');
+  const name = chatFolder.name.trim();
+  if (name !== '') {
+    return name;
   }
-  return chatFolder.name;
+  if (chatFolder.folderType === ChatFolderType.ALL) {
+    return i18n('icu:TrukiSpaceBar__GeneralLabel');
+  }
+  return '';
 }
 
 function getChatFolderIconName(chatFolder: ChatFolder | null): 'message' | 'folder' {
