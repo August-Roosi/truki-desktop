@@ -31,7 +31,8 @@ export type ConversationPropsForMutedStats = Readonly<
 
 export function countAllChatFoldersMutedStats(
   currentChatFolders: CurrentChatFolders,
-  conversations: ReadonlyArray<ConversationPropsForMutedStats>
+  conversations: ReadonlyArray<ConversationPropsForMutedStats>,
+  hiddenFromAllChatsConversationIds?: ReadonlySet<string>
 ): AllChatFoldersMutedStats {
   const results = new Map<ChatFolderId, MutableMutedStats>();
   const sortedChatFolders =
@@ -42,7 +43,11 @@ export function countAllChatFoldersMutedStats(
 
     // check which chatFolders should count this conversation
     for (const chatFolder of sortedChatFolders) {
-      if (isConversationInChatFolder(chatFolder, conversation)) {
+      if (
+        isConversationInChatFolder(chatFolder, conversation, {
+          hiddenFromAllChatsConversationIds,
+        })
+      ) {
         let mutedStats = results.get(chatFolder.id);
         if (mutedStats == null) {
           mutedStats = createMutedStats();

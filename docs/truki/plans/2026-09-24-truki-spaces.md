@@ -854,7 +854,7 @@ git commit -m "truki(spaces): sync emoji/color/hideFromAllChats via storage serv
   - `countAllChatFoldersUnreadStats` and `countAllChatFoldersMutedStats` each
     gain a trailing optional `hiddenFromAllChatsConversationIds` parameter
 
-- [ ] **Step 1: Write the failing predicate test**
+- [x] **Step 1: Write the failing predicate test**
 
 Create `ts/test-node/types/trukiHideFromAllChats_test.std.ts`:
 
@@ -932,7 +932,7 @@ describe('hideFromAllChats filtering', () => {
 });
 ```
 
-- [ ] **Step 2: Run it and confirm the third case fails**
+- [x] **Step 2: Run it and confirm the third case fails**
 
 ```sh
 pnpm run test-node -- --grep "hideFromAllChats filtering"
@@ -940,7 +940,7 @@ pnpm run test-node -- --grep "hideFromAllChats filtering"
 
 Expected: 3 passing, 1 failing — "excludes a hidden conversation".
 
-- [ ] **Step 3: Change the predicate**
+- [x] **Step 3: Change the predicate**
 
 In `ts/types/ChatFolder.std.ts`, extend the options type:
 
@@ -966,13 +966,13 @@ line that makes the whole feature work:
   }
 ```
 
-- [ ] **Step 4: Run the test and confirm 4 passing**
+- [x] **Step 4: Run the test and confirm 4 passing**
 
 ```sh
 pnpm run test-node -- --grep "hideFromAllChats filtering"
 ```
 
-- [ ] **Step 5: Write the failing selector test**
+- [x] **Step 5: Write the failing selector test**
 
 Append to the same test file. This covers **Review Focus item 2**:
 
@@ -1006,7 +1006,7 @@ Build the state fixture the way the neighbouring selector tests in
 grep -rln "getCurrentChatFolders\|CurrentChatFolders" ts/test-node ts/test-electron
 ```
 
-- [ ] **Step 6: Write the selector**
+- [x] **Step 6: Write the selector**
 
 In `ts/state/selectors/chatFolders.std.ts`, add:
 
@@ -1047,7 +1047,7 @@ conversation enumerated, which the selector does not have access to. That is a
 known limitation: **hiding applies to explicitly-added members.** Add that
 sentence as a comment above the selector.
 
-- [ ] **Step 7: Run the selector tests**
+- [x] **Step 7: Run the selector tests**
 
 ```sh
 pnpm run test-node -- --grep "getHiddenFromAllChatsConversationIds"
@@ -1055,7 +1055,7 @@ pnpm run test-node -- --grep "getHiddenFromAllChatsConversationIds"
 
 Expected: 4 passing.
 
-- [ ] **Step 8: Thread the set into the five call sites**
+- [x] **Step 8: Thread the set into the five call sites**
 
 Each is additive — a new trailing optional parameter, defaulted so existing
 callers are unchanged.
@@ -1105,7 +1105,7 @@ stops an open chat vanishing mid-read.
 It asks "is this chat a member of folder X" to drive menu actions; membership is
 the right answer there, visibility is not.
 
-- [ ] **Step 9: Verify, including the upstream suite**
+- [x] **Step 9: Verify, including the upstream suite**
 
 ```sh
 pnpm run check:types
@@ -1116,7 +1116,7 @@ pnpm run test-node
 Every upstream chat folder test must still pass **without being edited**. If one
 fails, the change was not additive — fix the change, not the test.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```sh
 git add ts/types/ChatFolder.std.ts ts/state/selectors ts/state/ducks \

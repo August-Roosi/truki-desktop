@@ -196,7 +196,8 @@ export function countAllConversationsUnreadStats(
 export function countAllChatFoldersUnreadStats(
   currentChatFolders: CurrentChatFolders,
   conversations: ReadonlyArray<ConversationPropsForUnreadStats>,
-  options: UnreadStatsOptions
+  options: UnreadStatsOptions,
+  hiddenFromAllChatsConversationIds?: ReadonlySet<string>
 ): AllChatFoldersUnreadStats {
   const results = new Map<ChatFolderId, MutableUnreadStats>();
   const sortedChatFolders =
@@ -221,7 +222,11 @@ export function countAllChatFoldersUnreadStats(
 
     // check which chatFolders should count this conversation
     for (const chatFolder of sortedChatFolders) {
-      if (isConversationInChatFolder(chatFolder, conversation)) {
+      if (
+        isConversationInChatFolder(chatFolder, conversation, {
+          hiddenFromAllChatsConversationIds,
+        })
+      ) {
         let unreadStats = results.get(chatFolder.id);
         if (unreadStats == null) {
           unreadStats = _createUnreadStats();
