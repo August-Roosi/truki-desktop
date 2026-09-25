@@ -1417,15 +1417,18 @@ Behaviour:
       return chatFolder.emoji;
     }
     // Must be grapheme-aware: 'label[0]' splits flags, ZWJ families and skin
-    // tones into broken halves.
-    return grapheme.take(label, 1);
+    // tones into broken halves. truncateAndSize returns [text, size].
+    const [firstGrapheme] = grapheme.truncateAndSize(label, 1);
+    return firstGrapheme;
   }
   ```
 
-  Check the real helper name first — `grep -n "export" ts/util/grapheme.std.ts`
-  — and use whatever it offers for "first N graphemes". `label` is the
-  **resolved** display string, so General with `name === ''` yields the i18n
-  label's first grapheme, never an empty pill.
+  `truncateAndSize` is the only helper `ts/util/grapheme.std.ts` exports that
+  yields the first N graphemes — there is no `take`. The others are `count` and
+  `hasAtMostGraphemes`, neither of which fits.
+
+  `label` must be the **resolved** display string, so General with `name === ''`
+  yields the i18n label's first grapheme, never an empty pill.
 - Keep each pill's context menu: mark read, mute submenu, open settings.
 - Do not render at all when `!currentChatFolders.hasAnyCurrentCustomChatFolders`,
   matching upstream — a user with no custom spaces keeps the plain "Chats" title.
