@@ -174,11 +174,11 @@ export type ChatFolderConversationFilterOptions = Readonly<{
   ignoreShowOnlyUnread?: boolean;
   ignoreShowMutedChats?: boolean;
   /**
-   * Truki: conversations claimed by a space with hideFromAllChats set. They
-   * are omitted from the All-chats folder only. Absent means nothing is hidden,
-   * which is upstream's behaviour.
+   * Truki: live spaces with hideFromAllChats set. A conversation claimed by
+   * any of them is omitted from the All-chats folder. Absent means nothing
+   * is hidden, which is upstream's behaviour.
    */
-  hiddenFromAllChatsConversationIds?: ReadonlySet<string>;
+  hidingChatFolders?: ReadonlyArray<ChatFolder>;
 }>;
 
 function _isConversationIncludedInChatFolder(
@@ -224,7 +224,12 @@ export function isConversationInChatFolder(
   options: ChatFolderConversationFilterOptions = {}
 ): boolean {
   if (chatFolder.folderType === ChatFolderType.ALL) {
-    return !options.hiddenFromAllChatsConversationIds?.has(conversation.id);
+    return !options.hidingChatFolders?.some(hidingFolder =>
+      isConversationInChatFolder(hidingFolder, conversation, {
+        ignoreShowOnlyUnread: true,
+        ignoreShowMutedChats: true,
+      })
+    );
   }
 
   return (

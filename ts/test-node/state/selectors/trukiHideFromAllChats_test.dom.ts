@@ -8,6 +8,7 @@ import type { ConversationType } from '../../../state/ducks/conversations.preloa
 import {
   ChatFolderType,
   CHAT_FOLDER_DEFAULTS,
+  type ChatFolder,
   type ChatFolderId,
 } from '../../../types/ChatFolder.std.ts';
 
@@ -41,7 +42,21 @@ describe('Truki hideFromAllChats stable selection', () => {
       pinnedConversationIds: null,
       selectedChatFolder: allChatFolder,
       stableSelectedConversationIdInChatFolder: conversation.id,
-      hiddenFromAllChatsConversationIds: new Set([conversation.id]),
+      hidingChatFolders: [
+        {
+          ...CHAT_FOLDER_DEFAULTS,
+          id: 'folder-custom' as ChatFolderId,
+          folderType: ChatFolderType.CUSTOM,
+          position: 1,
+          deletedAtTimestampMs: 0,
+          storageID: null,
+          storageVersion: null,
+          storageUnknownFields: null,
+          storageNeedsSync: false,
+          hideFromAllChats: true,
+          includedConversationIds: [conversation.id],
+        } satisfies ChatFolder,
+      ],
     });
 
     assert.deepEqual(

@@ -240,7 +240,7 @@ import type { ChatFolderId } from '../../types/ChatFolder.std.ts';
 import { isConversationInChatFolder } from '../../types/ChatFolder.std.ts';
 import {
   getCurrentChatFolders,
-  getHiddenFromAllChatsConversationIds,
+  getHidingChatFolders,
 } from '../selectors/chatFolders.std.ts';
 import { isConversationUnread } from '../../util/isConversationUnread.std.ts';
 import { CurrentChatFolders } from '../../types/CurrentChatFolders.std.ts';
@@ -1478,11 +1478,10 @@ function _getAllConversationsInChatFolder(
     '_getAllConversationsInChatFolder'
   );
   const allConversations = getAllConversations(state);
-  const hiddenFromAllChatsConversationIds =
-    getHiddenFromAllChatsConversationIds(state);
+  const hidingChatFolders = getHidingChatFolders(state);
   return allConversations.filter(conversation => {
     return isConversationInChatFolder(chatFolder, conversation, {
-      hiddenFromAllChatsConversationIds,
+      hidingChatFolders,
     });
   });
 }

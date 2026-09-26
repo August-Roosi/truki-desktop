@@ -12,7 +12,7 @@ import {
 } from '../../types/ChatFolder.std.ts';
 import type { CurrentChatFolder } from '../../types/CurrentChatFolders.std.ts';
 import { CurrentChatFolders } from '../../types/CurrentChatFolders.std.ts';
-import { getHiddenFromAllChatsConversationIds } from '../../state/selectors/chatFolders.std.ts';
+import { getHidingChatFolders } from '../../state/selectors/chatFolders.std.ts';
 import type { StateType } from '../../state/reducer.preload.ts';
 
 function folder(overrides: Partial<ChatFolder>): ChatFolder {
@@ -37,25 +37,36 @@ const conversation = {
   muteExpiresAt: undefined,
 };
 
-describe('hideFromAllChats filtering', () => {
-  const allFolder = folder({ folderType: ChatFolderType.ALL, name: '' });
+const groupConversation = {
+  ...conversation,
+  id: 'group-1',
+  type: 'group' as const,
+};
 
-  it('keeps upstream behaviour when no hidden set is passed', () => {
+const allFolder = folder({ folderType: ChatFolderType.ALL, name: '' });
+
+describe('hideFromAllChats filtering', () => {
+  it('keeps upstream behaviour when no hiding spaces are passed', () => {
     assert.isTrue(isConversationInChatFolder(allFolder, conversation));
   });
 
-  it('keeps upstream behaviour for an empty hidden set', () => {
+  it('keeps upstream behaviour for no hiding spaces', () => {
     assert.isTrue(
       isConversationInChatFolder(allFolder, conversation, {
-        hiddenFromAllChatsConversationIds: new Set(),
+        hidingChatFolders: [],
       })
     );
   });
 
   it('excludes a hidden conversation from the All-chats folder', () => {
+    const hidingFolder = folder({
+      folderType: ChatFolderType.CUSTOM,
+      hideFromAllChats: true,
+      includedConversationIds: [conversation.id],
+    });
     assert.isFalse(
       isConversationInChatFolder(allFolder, conversation, {
-        hiddenFromAllChatsConversationIds: new Set(['convo-1']),
+        hidingChatFolders: [hidingFolder],
       })
     );
   });
@@ -68,7 +79,81 @@ describe('hideFromAllChats filtering', () => {
     });
     assert.isTrue(
       isConversationInChatFolder(custom, conversation, {
-        hiddenFromAllChatsConversationIds: new Set(['convo-1']),
+        hidingChatFolders: [
+          folder({
+            folderType: ChatFolderType.CUSTOM,
+            hideFromAllChats: true,
+            includedConversationIds: [conversation.id],
+          }),
+        ],
+      })
+    );
+  });
+
+  it('hides group chats, but not direct chats, for an all-groups space', () => {
+    const hidingFolder = folder({
+      folderType: ChatFolderType.CUSTOM,
+      hideFromAllChats: true,
+      includeAllGroupChats: true,
+    });
+
+    assert.isFalse(
+      isConversationInChatFolder(allFolder, groupConversation, {
+        hidingChatFolders: [hidingFolder],
+      })
+    );
+    assert.isTrue(
+      isConversationInChatFolder(allFolder, conversation, {
+        hidingChatFolders: [hidingFolder],
+      })
+    );
+  });
+
+  it('hides direct chats, but not group chats, for an all-individuals space', () => {
+    const hidingFolder = folder({
+      folderType: ChatFolderType.CUSTOM,
+      hideFromAllChats: true,
+      includeAllIndividualChats: true,
+    });
+
+    assert.isFalse(
+      isConversationInChatFolder(allFolder, conversation, {
+        hidingChatFolders: [hidingFolder],
+      })
+    );
+    assert.isTrue(
+      isConversationInChatFolder(allFolder, groupConversation, {
+        hidingChatFolders: [hidingFolder],
+      })
+    );
+  });
+
+  it('does not hide a conversation excluded from a hiding space', () => {
+    const hidingFolder = folder({
+      folderType: ChatFolderType.CUSTOM,
+      hideFromAllChats: true,
+      includeAllIndividualChats: true,
+      excludedConversationIds: [conversation.id],
+    });
+
+    assert.isTrue(
+      isConversationInChatFolder(allFolder, conversation, {
+        hidingChatFolders: [hidingFolder],
+      })
+    );
+  });
+
+  it('hides a read conversation from an unread-only hiding space', () => {
+    const hidingFolder = folder({
+      folderType: ChatFolderType.CUSTOM,
+      hideFromAllChats: true,
+      includeAllIndividualChats: true,
+      showOnlyUnread: true,
+    });
+
+    assert.isFalse(
+      isConversationInChatFolder(allFolder, conversation, {
+        hidingChatFolders: [hidingFolder],
       })
     );
   });
@@ -78,15 +163,15 @@ function currentFolder(overrides: Partial<ChatFolder>): CurrentChatFolder {
   return folder(overrides) as CurrentChatFolder;
 }
 
-function getHiddenConversationIds(
+function getHidingFolders(
   currentChatFolders: CurrentChatFolders
-): ReadonlySet<string> {
-  return getHiddenFromAllChatsConversationIds({
+): ReadonlyArray<ChatFolder> {
+  return getHidingChatFolders({
     chatFolders: { currentChatFolders },
   } as StateType);
 }
 
-describe('getHiddenFromAllChatsConversationIds', () => {
+describe('getHidingChatFolders', () => {
   it('is empty when no space hides', () => {
     const currentChatFolders = CurrentChatFolders.fromArray([
       currentFolder({
@@ -101,10 +186,16 @@ describe('getHiddenFromAllChatsConversationIds', () => {
       }),
     ]);
 
-    assert.deepEqual([...getHiddenConversationIds(currentChatFolders)], []);
+    const hidingChatFolders = getHidingFolders(currentChatFolders);
+    assert.deepEqual(hidingChatFolders, []);
+    assert.isTrue(
+      isConversationInChatFolder(allFolder, conversation, {
+        hidingChatFolders,
+      })
+    );
   });
 
-  it('unions members across several hiding spaces', () => {
+  it('returns every live custom hiding space', () => {
     const currentChatFolders = CurrentChatFolders.fromArray([
       currentFolder({
         id: 'folder-a' as ChatFolderId,
@@ -121,8 +212,8 @@ describe('getHiddenFromAllChatsConversationIds', () => {
     ]);
 
     assert.sameMembers(
-      [...getHiddenConversationIds(currentChatFolders)],
-      ['a', 'b', 'c']
+      getHidingFolders(currentChatFolders).map(chatFolder => chatFolder.id),
+      ['folder-a', 'folder-b']
     );
   });
 
@@ -131,7 +222,7 @@ describe('getHiddenFromAllChatsConversationIds', () => {
       id: 'folder-deleted' as ChatFolderId,
       folderType: ChatFolderType.CUSTOM,
       hideFromAllChats: true,
-      includedConversationIds: ['a'],
+      includedConversationIds: [conversation.id],
       deletedAtTimestampMs: 1,
     });
     // getCurrentChatFolders normally contains live folders only. Construct an
@@ -144,7 +235,13 @@ describe('getHiddenFromAllChatsConversationIds', () => {
       hasAnyCurrentCustomChatFolders: true,
     } as CurrentChatFolders;
 
-    assert.deepEqual([...getHiddenConversationIds(currentChatFolders)], []);
+    const hidingChatFolders = getHidingFolders(currentChatFolders);
+    assert.deepEqual(hidingChatFolders, []);
+    assert.isTrue(
+      isConversationInChatFolder(allFolder, conversation, {
+        hidingChatFolders,
+      })
+    );
   });
 
   it('ignores the All-chats folder itself', () => {
@@ -157,6 +254,6 @@ describe('getHiddenFromAllChatsConversationIds', () => {
       }),
     ]);
 
-    assert.deepEqual([...getHiddenConversationIds(currentChatFolders)], []);
+    assert.deepEqual(getHidingFolders(currentChatFolders), []);
   });
 });

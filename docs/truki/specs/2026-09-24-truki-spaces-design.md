@@ -179,46 +179,47 @@ is added to it, and the ALL branch changes from an unconditional `true`:
 export type ChatFolderConversationFilterOptions = Readonly<{
   ignoreShowOnlyUnread?: boolean;
   ignoreShowMutedChats?: boolean;
-  hiddenFromAllChatsConversationIds?: ReadonlySet<string>;  // new
+  hidingChatFolders?: ReadonlyArray<ChatFolder>;  // new
 }>;
 
 export function isConversationInChatFolder(chatFolder, conversation, options = {}) {
   if (chatFolder.folderType === ChatFolderType.ALL) {
     // was: return true;
-    return !options.hiddenFromAllChatsConversationIds?.has(conversation.id);
+    return !options.hidingChatFolders?.some(hidingFolder =>
+      isConversationInChatFolder(hidingFolder, conversation, {
+        ignoreShowOnlyUnread: true,
+        ignoreShowMutedChats: true,
+      })
+    );
   }
   // ...unchanged...
 }
 ```
 
 Because the option is optional, every existing call site and every upstream
-test compiles unchanged and behaves identically: `!undefined?.has(x)` is `true`,
-which is today's behaviour.
+test compiles unchanged and behaves identically: an absent folder list means
+nothing is hidden.
 
-### 5.2 The hidden set
+### 5.2 Hiding folders
 
-A new memoized selector derives the set from the folders themselves:
+A memoized selector derives the live hiding folders from the folders themselves:
 
 ```
-getHiddenFromAllChatsConversationIds(state): ReadonlySet<string>
-  = union of member conversation ids of every non-deleted CUSTOM folder
-    whose hideFromAllChats is true
+getHidingChatFolders(state): ReadonlyArray<ChatFolder>
+  = every non-deleted CUSTOM folder whose hideFromAllChats is true
 ```
 
-It is derived, never stored, so it cannot drift out of sync with membership.
-
-**Limitation — hiding covers explicitly-added members only.** The set is built
-from `includedConversationIds`. A space defined by `includeAllIndividualChats`
-or `includeAllGroupChats` claims its members by rule rather than by id, and the
-selector has no conversation list to expand that rule against. Ticking
-"hide from General" on such a space therefore hides nothing.
-
-The UI must not silently do nothing: in the edit page, the checkbox is disabled
-with an explanatory note whenever either `includeAll*` flag is set. Resolving
-this properly would mean expanding the rule against every conversation on each
-membership change, which is the derived-state churn §3.1 rejects.
+The ALL branch evaluates each folder through the existing membership predicate.
+It therefore handles explicitly included conversations, both `includeAll*`
+rules, and `excludedConversationIds` without expanding membership into stored
+or precomputed conversation ids. It ignores `showOnlyUnread` and
+`showMutedChats` for this evaluation: those are display filters, not membership
+rules, so a claimed chat remains hidden from General even when it is read or
+muted.
 
 ### 5.3 Call sites
+
+Each listed call site threads `hidingChatFolders` into the membership predicate.
 
 | Call site | Threaded? | Why |
 | --- | --- | --- |
@@ -349,7 +350,7 @@ as-is. The bar is a wide-layout concern only.
 
 General's badge counts only what General shows, so a chat hidden by
 `hideFromAllChats` does not contribute to it. This follows automatically from
-threading the hidden set into `countUnreadStats`.
+threading hiding folders into `countUnreadStats`.
 
 ## 8. Settings UI
 
@@ -376,10 +377,10 @@ delete action remains absent for General.
 
 ## 10. Testing
 
-- **Unit** — `isConversationInChatFolder` with and without a hidden set;
-  General's ALL branch with an empty set must equal upstream behaviour.
-- **Unit** — the hidden-set selector: empty when no space hides, union across
-  several hiding spaces, ignores deleted spaces.
+- **Unit** — `isConversationInChatFolder` with and without hiding folders;
+  General's ALL branch with an empty list must equal upstream behaviour.
+- **Unit** — the hiding-folder selector: empty when no space hides, returns
+  every live custom hiding space, and ignores deleted spaces.
 - **Unit** — `ensureTrukiSchema` is idempotent: running twice on a fresh DB and
   on an already-migrated DB both succeed.
 - **Round-trip** — `toChatFolderRecord` / `mergeChatFolderRecord` preserve all
@@ -411,12 +412,12 @@ delete action remains absent for General.
 | `ts/sql/server/chatFolders.std.ts` | new columns in read/write queries |
 | `ts/sql/migrations/index.node.ts` | import + call `ensureTrukiSchema` |
 | `ts/services/storageRecordOps.preload.ts` | map 3 fields both directions |
-| `ts/state/ducks/chatFolders.preload.ts` | carry fields through actions; thread hidden set |
-| `ts/state/selectors/chatFolders.std.ts` | hidden-set selector |
-| `ts/state/selectors/conversations.dom.ts` | thread hidden set |
-| `ts/state/ducks/conversations.preload.ts` | thread hidden set |
-| `ts/util/countUnreadStats.std.ts` | accept + use hidden set |
-| `ts/util/countMutedStats.std.ts` | accept + use hidden set |
+| `ts/state/ducks/chatFolders.preload.ts` | carry fields through actions; thread hiding folders |
+| `ts/state/selectors/chatFolders.std.ts` | hiding-folder selector |
+| `ts/state/selectors/conversations.dom.ts` | thread hiding folders |
+| `ts/state/ducks/conversations.preload.ts` | thread hiding folders |
+| `ts/util/countUnreadStats.std.ts` | accept + use hiding folders |
+| `ts/util/countMutedStats.std.ts` | accept + use hiding folders |
 | `ts/components/NavSidebar.dom.tsx` | optional `titleSlot` prop |
 | `ts/components/LeftPane.dom.tsx` | pass `titleSlot` |
 | `ts/components/leftPane/LeftPaneInboxHelper.dom.tsx` | stop rendering the old strip |

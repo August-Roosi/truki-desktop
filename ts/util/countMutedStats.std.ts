@@ -4,6 +4,7 @@
 import type { ConversationType } from '../state/ducks/conversations.preload.ts';
 import {
   isConversationInChatFolder,
+  type ChatFolder,
   type ChatFolderId,
 } from '../types/ChatFolder.std.ts';
 import { CurrentChatFolders } from '../types/CurrentChatFolders.std.ts';
@@ -32,7 +33,7 @@ export type ConversationPropsForMutedStats = Readonly<
 export function countAllChatFoldersMutedStats(
   currentChatFolders: CurrentChatFolders,
   conversations: ReadonlyArray<ConversationPropsForMutedStats>,
-  hiddenFromAllChatsConversationIds?: ReadonlySet<string>
+  hidingChatFolders?: ReadonlyArray<ChatFolder>
 ): AllChatFoldersMutedStats {
   const results = new Map<ChatFolderId, MutableMutedStats>();
   const sortedChatFolders =
@@ -45,7 +46,7 @@ export function countAllChatFoldersMutedStats(
     for (const chatFolder of sortedChatFolders) {
       if (
         isConversationInChatFolder(chatFolder, conversation, {
-          hiddenFromAllChatsConversationIds,
+          hidingChatFolders,
         })
       ) {
         let mutedStats = results.get(chatFolder.id);

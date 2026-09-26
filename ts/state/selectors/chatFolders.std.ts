@@ -7,7 +7,10 @@ import type { StateSelector } from '../types.std.ts';
 import type { ChatFoldersState } from '../ducks/chatFolders.preload.ts';
 import type { CurrentChatFolder } from '../../types/CurrentChatFolders.std.ts';
 import { CurrentChatFolders } from '../../types/CurrentChatFolders.std.ts';
-import { ChatFolderType } from '../../types/ChatFolder.std.ts';
+import {
+  ChatFolderType,
+  type ChatFolder,
+} from '../../types/ChatFolder.std.ts';
 
 function getChatFoldersState(state: StateType): ChatFoldersState {
   return state.chatFolders;
@@ -31,31 +34,18 @@ export const getHasAnyCurrentCustomChatFolders: StateSelector<boolean> =
   });
 
 /**
- * Truki: the union of conversations claimed by any live CUSTOM space with
- * hideFromAllChats set. Derived, never stored, so it cannot drift out of sync
- * with membership.
- *
- * Hiding applies to explicitly-added members only. Spaces using
- * includeAllIndividualChats or includeAllGroupChats hide nothing.
+ * Truki: live CUSTOM spaces with hideFromAllChats set. The membership
+ * predicate evaluates each space's inclusion rules when filtering General.
  */
-export const getHiddenFromAllChatsConversationIds: StateSelector<
-  ReadonlySet<string>
-> = createSelector(getCurrentChatFolders, currentChatFolders => {
-  const hidden = new Set<string>();
-  for (const chatFolder of CurrentChatFolders.toSortedArray(currentChatFolders)) {
-    if (
-      chatFolder.folderType !== ChatFolderType.CUSTOM ||
-      !chatFolder.hideFromAllChats ||
-      chatFolder.deletedAtTimestampMs > 0
-    ) {
-      continue;
-    }
-    for (const id of chatFolder.includedConversationIds) {
-      hidden.add(id);
-    }
-  }
-  return hidden;
-});
+export const getHidingChatFolders: StateSelector<ReadonlyArray<ChatFolder>> =
+  createSelector(getCurrentChatFolders, currentChatFolders => {
+    return CurrentChatFolders.toSortedArray(currentChatFolders).filter(
+      chatFolder =>
+        chatFolder.folderType === ChatFolderType.CUSTOM &&
+        chatFolder.hideFromAllChats &&
+        chatFolder.deletedAtTimestampMs === 0
+    );
+  });
 
 export const getSelectedChatFolder: StateSelector<CurrentChatFolder | null> =
   createSelector(

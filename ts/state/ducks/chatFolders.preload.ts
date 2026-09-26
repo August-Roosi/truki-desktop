@@ -16,7 +16,7 @@ import {
 } from '../../types/ChatFolder.std.ts';
 import {
   getCurrentChatFolders,
-  getHiddenFromAllChatsConversationIds,
+  getHidingChatFolders,
   getSelectedChatFolder,
 } from '../selectors/chatFolders.std.ts';
 import { DataReader, DataWriter } from '../../sql/Client.preload.ts';
@@ -290,11 +290,10 @@ function updateChatFolderStateOnTargetConversationChanged(
     const conversation = getOwn(conversationLookup, conversationId);
     strictAssert(conversation != null, 'Target conversation not found');
 
-    const hiddenFromAllChatsConversationIds =
-      getHiddenFromAllChatsConversationIds(state);
+    const hidingChatFolders = getHidingChatFolders(state);
     if (
       isConversationInChatFolder(selectedChatFolder, conversation, {
-        hiddenFromAllChatsConversationIds,
+        hidingChatFolders,
       })
     ) {
       // Make sure the targetted conversation doesn't appear from the chat folder

@@ -81,7 +81,7 @@ import {
 import {
   getSelectedChatFolder,
   getCurrentChatFolders,
-  getHiddenFromAllChatsConversationIds,
+  getHidingChatFolders,
   getStableSelectedConversationIdInChatFolder,
 } from './chatFolders.std.ts';
 import {
@@ -407,7 +407,7 @@ function _shouldIncludeInChatFolder(
   conversation: ConversationType,
   selectedChatFolder: ChatFolder | null,
   stableSelectedConversationIdInChatFolder: string | null,
-  hiddenFromAllChatsConversationIds?: ReadonlySet<string>
+  hidingChatFolders?: ReadonlyArray<ChatFolder>
 ): boolean {
   if (selectedChatFolder == null) {
     return true;
@@ -424,7 +424,7 @@ function _shouldIncludeInChatFolder(
 
   if (
     isConversationInChatFolder(selectedChatFolder, conversation, {
-      hiddenFromAllChatsConversationIds,
+      hidingChatFolders,
     })
   ) {
     return true;
@@ -443,7 +443,7 @@ type GetLeftPaneListsProps = Readonly<{
   pinnedConversationIds: ReadonlyArray<string> | null;
   selectedChatFolder: ChatFolder | null;
   stableSelectedConversationIdInChatFolder: string | null;
-  hiddenFromAllChatsConversationIds?: ReadonlySet<string>;
+  hidingChatFolders?: ReadonlyArray<ChatFolder>;
 }>;
 
 export const _getLeftPaneLists = ({
@@ -453,7 +453,7 @@ export const _getLeftPaneLists = ({
   pinnedConversationIds,
   selectedChatFolder,
   stableSelectedConversationIdInChatFolder,
-  hiddenFromAllChatsConversationIds,
+  hidingChatFolders,
 }: GetLeftPaneListsProps): LeftPaneLists => {
   const conversations: Array<ConversationType> = [];
   const archivedConversations: Array<ConversationType> = [];
@@ -466,7 +466,7 @@ export const _getLeftPaneLists = ({
         conversation,
         selectedChatFolder,
         stableSelectedConversationIdInChatFolder,
-        hiddenFromAllChatsConversationIds
+        hidingChatFolders
       )
     ) {
       continue;
@@ -516,7 +516,7 @@ export const getLeftPaneLists = createSelector(
   getPinnedConversationIds,
   getSelectedChatFolder,
   getStableSelectedConversationIdInChatFolder,
-  getHiddenFromAllChatsConversationIds,
+  getHidingChatFolders,
   (
     conversationLookup,
     conversationComparator,
@@ -524,7 +524,7 @@ export const getLeftPaneLists = createSelector(
     pinnedConversationIds,
     selectedChatFolder,
     stableSelectedConversationIdInChatFolder,
-    hiddenFromAllChatsConversationIds
+    hidingChatFolders
   ) => {
     return _getLeftPaneLists({
       conversationLookup,
@@ -533,7 +533,7 @@ export const getLeftPaneLists = createSelector(
       pinnedConversationIds,
       selectedChatFolder,
       stableSelectedConversationIdInChatFolder,
-      hiddenFromAllChatsConversationIds,
+      hidingChatFolders,
     });
   }
 );
@@ -784,12 +784,12 @@ export const getAllChatFoldersUnreadStats: StateSelector<AllChatFoldersUnreadSta
     getCurrentChatFolders,
     getAllConversations,
     getActiveProfile,
-    getHiddenFromAllChatsConversationIds,
+    getHidingChatFolders,
     (
       currentChatFolders,
       allConversations,
       activeProfile,
-      hiddenFromAllChatsConversationIds
+      hidingChatFolders
     ) => {
       return countAllChatFoldersUnreadStats(
         currentChatFolders,
@@ -798,7 +798,7 @@ export const getAllChatFoldersUnreadStats: StateSelector<AllChatFoldersUnreadSta
           activeProfile,
           includeMuted: 'force-include',
         },
-        hiddenFromAllChatsConversationIds
+        hidingChatFolders
       );
     }
   );
@@ -807,12 +807,12 @@ export const getAllChatFoldersMutedStats: StateSelector<AllChatFoldersMutedStats
   createSelector(
     getCurrentChatFolders,
     getAllConversations,
-    getHiddenFromAllChatsConversationIds,
-    (currentChatFolders, allConversations, hiddenFromAllChatsConversationIds) => {
+    getHidingChatFolders,
+    (currentChatFolders, allConversations, hidingChatFolders) => {
       return countAllChatFoldersMutedStats(
         currentChatFolders,
         allConversations,
-        hiddenFromAllChatsConversationIds
+        hidingChatFolders
       );
     }
   );

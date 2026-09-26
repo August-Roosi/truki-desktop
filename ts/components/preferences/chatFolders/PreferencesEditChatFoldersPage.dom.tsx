@@ -100,9 +100,6 @@ export function PreferencesEditChatFolderPage(
 
   const isAllChatFolder =
     chatFolderParams.folderType === ChatFolderType.ALL;
-  const isHideFromGeneralUnavailable =
-    chatFolderParams.includeAllIndividualChats ||
-    chatFolderParams.includeAllGroupChats;
 
   const normalizedChatFolderParams = useMemo(() => {
     return parseStrict(ChatFolderParamsSchema, chatFolderParams);
@@ -510,17 +507,9 @@ export function PreferencesEditChatFolderPage(
               left={i18n(
                 'icu:Preferences__EditChatFolderPage__HideFromGeneral__Label'
               )}
-              description={
-                isHideFromGeneralUnavailable
-                  ? i18n(
-                      'icu:Preferences__EditChatFolderPage__HideFromGeneral__Unavailable'
-                    )
-                  : undefined
-              }
               right={
                 <AxoSwitch.Root
                   checked={chatFolderParams.hideFromAllChats}
-                  disabled={isHideFromGeneralUnavailable}
                   onCheckedChange={handleHideFromGeneralChange}
                 />
               }

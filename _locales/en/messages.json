@@ -2410,10 +2410,6 @@
     "messageformat": "Hide these chats from General",
     "description": "Checkbox label. When on, this space's chats do not appear in the General space."
   },
-  "icu:Preferences__EditChatFolderPage__HideFromGeneral__Unavailable": {
-    "messageformat": "Not available for spaces that include all chats of a type",
-    "description": "Explains why the hide-from-General checkbox is disabled."
-  },
   "icu:Preferences__EditChatFolderPage__DeleteFolderButton": {
     "messageformat": "Delete folder",
     "description": "Preferences > Edit Chat Folder Page > Delete Folder Button"
