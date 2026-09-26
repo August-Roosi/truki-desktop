@@ -99,7 +99,9 @@ function getChatFolderDisplayLabel(
   return '';
 }
 
-function getChatFolderIconName(chatFolder: ChatFolder | null): 'message' | 'folder' {
+function getChatFolderIconName(
+  chatFolder: ChatFolder | null
+): 'message' | 'folder' {
   if (chatFolder == null) {
     return 'message';
   }
@@ -180,33 +182,44 @@ export function TrukiSpaceBar(props: TrukiSpaceBarProps): JSX.Element | null {
   }
 
   return (
-    <div
-      className={tw(
-        'flex min-w-0 flex-1 scrollbar-width-none gap-1 overflow-x-auto overflow-y-clip pe-2'
-      )}
-      onFocus={handleFocus}
-    >
-      {sortedChatFolders.map(chatFolder => {
-        const unreadStats =
-          props.allChatFoldersUnreadStats.get(chatFolder.id) ?? null;
-        const mutedStats =
-          props.allChatFoldersMutedStats.get(chatFolder.id) ?? null;
-        return (
-          <TrukiSpaceBarItem
-            key={chatFolder.id}
-            i18n={i18n}
-            chatFolder={chatFolder}
-            unreadStats={unreadStats}
-            unreadCountBadgeType={props.unreadCountBadgeType}
-            mutedStats={mutedStats}
-            isSelected={props.selectedChatFolder?.id === chatFolder.id}
-            onSelect={handleValueChange}
-            onChatFolderMarkRead={props.onChatFolderMarkRead}
-            onChatFolderUpdateMute={props.onChatFolderUpdateMute}
-            onChatFolderOpenSettings={props.onChatFolderOpenSettings}
-          />
-        );
-      })}
+    // Truki: pt-2 on the wrapper lifts the row off the titlebar without
+    // stretching the track's background into that space.
+    <div className={tw('flex min-w-0 flex-1 pt-2')}>
+      {/*
+       * One shared track, so the spaces read as a single switch row rather than
+       * a strip of separate buttons: gap-0 joins them, and only the selected
+       * pill carries a fill. The track's p-1 also leaves room for the collapsed
+       * pills' unread badges, which overflow-x-auto would otherwise clip.
+       */}
+      <div
+        className={tw(
+          'flex min-w-0 flex-1 items-center gap-0 rounded-full bg-primary p-1',
+          'scrollbar-width-none overflow-x-auto overflow-y-clip'
+        )}
+        onFocus={handleFocus}
+      >
+        {sortedChatFolders.map(chatFolder => {
+          const unreadStats =
+            props.allChatFoldersUnreadStats.get(chatFolder.id) ?? null;
+          const mutedStats =
+            props.allChatFoldersMutedStats.get(chatFolder.id) ?? null;
+          return (
+            <TrukiSpaceBarItem
+              key={chatFolder.id}
+              i18n={i18n}
+              chatFolder={chatFolder}
+              unreadStats={unreadStats}
+              unreadCountBadgeType={props.unreadCountBadgeType}
+              mutedStats={mutedStats}
+              isSelected={props.selectedChatFolder?.id === chatFolder.id}
+              onSelect={handleValueChange}
+              onChatFolderMarkRead={props.onChatFolderMarkRead}
+              onChatFolderUpdateMute={props.onChatFolderUpdateMute}
+              onChatFolderOpenSettings={props.onChatFolderOpenSettings}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -289,12 +302,17 @@ function TrukiSpaceBarItem(props: {
         aria-label={label}
         aria-pressed={isSelected}
         className={tw(
-          'relative flex h-8 shrink-0 items-center gap-1 rounded-full px-2',
+          'relative flex h-7 shrink-0 items-center rounded-full px-2',
           'type-body-medium font-medium outline-focused-inner not-forced-colors:outline-none',
           'not-forced-colors:keyboard-mode:focus:axo-focus-ring',
+          // Truki: animate the fill and the label's expand/collapse. Duration and
+          // easing come from the Axo theme defaults (120ms, ease-out-cubic).
+          'transition-all',
+          // Only the selected pill is filled — unselected pills stay transparent
+          // so the shared track behind them reads as one switch row.
           isSelected
             ? 'bg-accent text-primary-oncolor'
-            : 'bg-primary text-primary hover:bg-secondary'
+            : 'text-secondary hover:text-primary'
         )}
         style={
           isSelected && chatFolder.color != null
@@ -306,13 +324,26 @@ function TrukiSpaceBarItem(props: {
         <span aria-hidden className={tw('leading-none')}>
           {icon}
         </span>
-        {isSelected && (
-          <span className={tw('max-w-[12ch] truncate')}>
-            {getChatFolderLabel(i18n, chatFolder, false)}
-          </span>
-        )}
+        {/*
+         * Truki: always rendered so its width can animate — a conditionally
+         * mounted element has nothing to transition from. Collapsing to
+         * max-w-0/ms-0 rather than unmounting is what makes selecting a space
+         * slide open instead of snapping. aria-hidden because the button's
+         * aria-label already carries this text.
+         */}
+        <span
+          aria-hidden
+          className={tw(
+            'overflow-hidden whitespace-nowrap transition-all',
+            isSelected
+              ? 'ms-1 max-w-[12ch] opacity-100'
+              : 'ms-0 max-w-0 opacity-0'
+          )}
+        >
+          {getChatFolderLabel(i18n, chatFolder, false)}
+        </span>
         {!isSelected && badgeValue != null && (
-          <span className={tw('absolute -inset-e-1 -top-1')}>
+          <span className={tw('absolute -inset-e-0.5 -top-0.5')}>
             <AxoBadge.Root
               variant="primary"
               size="sm"
