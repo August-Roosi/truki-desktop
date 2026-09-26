@@ -349,7 +349,14 @@ function TrukiSpaceBarItem(props: {
           {getChatFolderLabel(i18n, chatFolder, false)}
         </span>
         {!isSelected && badgeValue != null && (
-          <span className={tw('absolute -inset-e-0.5 -top-0.5')}>
+          // Truki: the dimmed class retargets the accent tokens AxoBadge reads,
+          // so an unselected space's bubble is white and quiet instead of
+          // another block of the theme colour. See _truki-spaces.scss.
+          <span
+            className={`TrukiSpaceBar__Badge--dimmed ${tw(
+              'absolute -inset-e-0.5 -top-0.5'
+            )}`}
+          >
             <AxoBadge.Root
               variant="primary"
               size="sm"

@@ -45,6 +45,44 @@ body[data-truki-space-accent] {
     var(--truki-space-accent) 25%,
     transparent
   );
+
+  // Truki: the neutral fills, tinted. Upstream these are plain greys, and they
+  // cover the surfaces you see most — the selected chat row, row hover, the
+  // space bar's own track, secondary buttons. Mixing only a little accent into
+  // them ties the whole pane to the current space without turning it into a
+  // block of colour. They stay translucent so they layer over any background.
+  //
+  // Keep these percentages low. They multiply across a lot of surfaces at once,
+  // and anything above roughly 20% stops reading as a tint and starts competing
+  // with the selected pill for attention.
+  --axo-color-fill-primary: color-mix(
+    in oklab,
+    var(--truki-space-accent) 10%,
+    transparent
+  );
+  --axo-color-fill-primary-pressed: color-mix(
+    in oklab,
+    var(--truki-space-accent) 16%,
+    transparent
+  );
+  --axo-color-fill-secondary: color-mix(
+    in oklab,
+    var(--truki-space-accent) 14%,
+    transparent
+  );
+  --axo-color-fill-secondary-pressed: color-mix(
+    in oklab,
+    var(--truki-space-accent) 20%,
+    transparent
+  );
+
+  // The selected-row border wants more saturation than a fill, since it is only
+  // a hairline and a 15% mix would vanish.
+  --axo-color-border-selected: color-mix(
+    in oklab,
+    var(--truki-space-accent) 60%,
+    transparent
+  );
 }
 
 body[data-truki-space-accent].dark-theme {
@@ -52,5 +90,46 @@ body[data-truki-space-accent].dark-theme {
     in oklab,
     var(--truki-space-accent) 70%,
     white
+  );
+
+  // Dark surfaces swallow a translucent tint, so the same mixes need to be
+  // stronger here to be visible at all.
+  --axo-color-fill-primary: color-mix(
+    in oklab,
+    var(--truki-space-accent) 16%,
+    transparent
+  );
+  --axo-color-fill-primary-pressed: color-mix(
+    in oklab,
+    var(--truki-space-accent) 24%,
+    transparent
+  );
+  --axo-color-fill-secondary: color-mix(
+    in oklab,
+    var(--truki-space-accent) 20%,
+    transparent
+  );
+  --axo-color-fill-secondary-pressed: color-mix(
+    in oklab,
+    var(--truki-space-accent) 28%,
+    transparent
+  );
+}
+
+// Truki: unselected spaces' unread bubbles. Upstream's AxoBadge "primary"
+// variant is accent-filled, which meant every space's bubble turned the theme
+// colour at once and competed with the selected pill. White and dimmed keeps the
+// counts readable while reserving the accent for the space you are actually in.
+//
+// Overriding the tokens the badge reads, rather than restyling AxoBadge, keeps
+// this to a Truki-owned class and leaves the upstream component untouched.
+.TrukiSpaceBar__Badge--dimmed {
+  --axo-color-fill-accent: light-dark(
+    rgb(255 255 255 / 0.92),
+    rgb(255 255 255 / 0.7)
+  );
+  --axo-color-label-primary-oncolor: light-dark(
+    rgb(0 0 0 / 0.55),
+    rgb(0 0 0 / 0.72)
   );
 }
