@@ -116,6 +116,70 @@ body[data-truki-space-accent].dark-theme {
   );
 }
 
+// Truki: the surface family — the actual window and pane backgrounds, as
+// opposed to the fill tokens above which are overlays on top of them. The left
+// pane reads --axo-color-surface-secondary, so tinting these is what makes the
+// space colour feel like the background rather than just an accent.
+//
+// These are OPAQUE base colours upstream, not translucent overlays, so the tint
+// has to be mixed into each base rather than into `transparent`. That means the
+// light and dark bases must be restated per theme: there is no way to express
+// "6% accent over whatever this already was".
+//
+// Percentages stay very low. A full-window background at even 10% reads far
+// stronger than a row overlay at 10%, because it covers everything and there is
+// nothing neutral left to compare it against.
+//
+// Deliberately NOT tinted:
+//   surface-card               — modals and cards stay neutral for readability
+//   surface-message-incoming   — message bubbles have their own conversation
+//   surface-message-outgoing     colour system; tinting these fights it
+body[data-truki-space-accent].light-theme {
+  --axo-color-surface-primary: color-mix(
+    in oklab,
+    var(--truki-space-accent) 5%,
+    #fafafa
+  );
+  --axo-color-surface-secondary: color-mix(
+    in oklab,
+    var(--truki-space-accent) 7%,
+    #f5f5f5
+  );
+  --axo-color-surface-tertiary: color-mix(
+    in oklab,
+    var(--truki-space-accent) 9%,
+    #f0f0f0
+  );
+  --axo-color-surface-quaternary: color-mix(
+    in oklab,
+    var(--truki-space-accent) 11%,
+    #e6e6e6
+  );
+}
+
+body[data-truki-space-accent].dark-theme {
+  --axo-color-surface-primary: color-mix(
+    in oklab,
+    var(--truki-space-accent) 8%,
+    #191919
+  );
+  --axo-color-surface-secondary: color-mix(
+    in oklab,
+    var(--truki-space-accent) 11%,
+    #1e1e1e
+  );
+  --axo-color-surface-tertiary: color-mix(
+    in oklab,
+    var(--truki-space-accent) 14%,
+    #282828
+  );
+  --axo-color-surface-quaternary: color-mix(
+    in oklab,
+    var(--truki-space-accent) 17%,
+    #373737
+  );
+}
+
 // Truki: unselected spaces' unread bubbles. Upstream's AxoBadge "primary"
 // variant is accent-filled, which meant every space's bubble turned the theme
 // colour at once and competed with the selected pill. White and dimmed keeps the
