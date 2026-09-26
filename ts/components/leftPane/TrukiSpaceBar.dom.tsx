@@ -305,14 +305,18 @@ function TrukiSpaceBarItem(props: {
           'relative flex h-7 shrink-0 items-center rounded-full px-2',
           'type-body-medium font-medium outline-focused-inner not-forced-colors:outline-none',
           'not-forced-colors:keyboard-mode:focus:axo-focus-ring',
-          // Truki: animate the fill and the label's expand/collapse. Duration and
-          // easing come from the Axo theme defaults (120ms, ease-out-cubic).
-          'transition-all',
+          // Truki: animate the fill and the label's expand/collapse. 250ms
+          // rather than the Axo default of 120ms — the label sliding open is a
+          // much larger move than a typical colour transition, and at 120ms it
+          // reads as a snap rather than a slide.
+          'transition-all duration-250 ease-out-cubic',
           // Only the selected pill is filled — unselected pills stay transparent
-          // so the shared track behind them reads as one switch row.
+          // so the shared track behind them reads as one switch row. On hover an
+          // unselected pill takes a faint fill, which is what makes the row feel
+          // like a switch you can aim at.
           isSelected
             ? 'bg-accent text-primary-oncolor'
-            : 'text-secondary hover:text-primary'
+            : 'text-secondary hover:bg-secondary hover:text-primary'
         )}
         style={
           isSelected && chatFolder.color != null
@@ -334,7 +338,9 @@ function TrukiSpaceBarItem(props: {
         <span
           aria-hidden
           className={tw(
-            'overflow-hidden whitespace-nowrap transition-all',
+            // Must match the button's duration/easing, or the label and the fill
+            // animate at different speeds and the pill looks like it stutters.
+            'overflow-hidden whitespace-nowrap transition-all duration-250 ease-out-cubic',
             isSelected
               ? 'ms-1 max-w-[12ch] opacity-100'
               : 'ms-0 max-w-0 opacity-0'
