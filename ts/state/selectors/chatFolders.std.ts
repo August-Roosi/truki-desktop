@@ -7,6 +7,10 @@ import type { StateSelector } from '../types.std.ts';
 import type { ChatFoldersState } from '../ducks/chatFolders.preload.ts';
 import type { CurrentChatFolder } from '../../types/CurrentChatFolders.std.ts';
 import { CurrentChatFolders } from '../../types/CurrentChatFolders.std.ts';
+import {
+  ChatFolderType,
+  type ChatFolder,
+} from '../../types/ChatFolder.std.ts';
 
 function getChatFoldersState(state: StateType): ChatFoldersState {
   return state.chatFolders;
@@ -27,6 +31,20 @@ export const getCurrentChatFoldersCount: StateSelector<number> = createSelector(
 export const getHasAnyCurrentCustomChatFolders: StateSelector<boolean> =
   createSelector(getCurrentChatFolders, currentChatFolders => {
     return currentChatFolders.hasAnyCurrentCustomChatFolders;
+  });
+
+/**
+ * Truki: live CUSTOM spaces with hideFromAllChats set. The membership
+ * predicate evaluates each space's inclusion rules when filtering General.
+ */
+export const getHidingChatFolders: StateSelector<ReadonlyArray<ChatFolder>> =
+  createSelector(getCurrentChatFolders, currentChatFolders => {
+    return CurrentChatFolders.toSortedArray(currentChatFolders).filter(
+      chatFolder =>
+        chatFolder.folderType === ChatFolderType.CUSTOM &&
+        chatFolder.hideFromAllChats &&
+        chatFolder.deletedAtTimestampMs === 0
+    );
   });
 
 export const getSelectedChatFolder: StateSelector<CurrentChatFolder | null> =

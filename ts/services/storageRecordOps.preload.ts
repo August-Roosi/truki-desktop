@@ -112,6 +112,7 @@ import {
   CHAT_FOLDER_DELETED_POSITION,
   ChatFolderType,
 } from '../types/ChatFolder.std.ts';
+import * as TrukiSpaceColor from '../types/TrukiSpaceColor.std.ts';
 import {
   deriveGroupID,
   deriveGroupSecretParams,
@@ -998,6 +999,9 @@ export function toChatFolderRecord(
     includedRecipients: toRecipients(chatFolder.includedConversationIds, logId),
     excludedRecipients: toRecipients(chatFolder.excludedConversationIds, logId),
     deletedAtTimestampMs: BigInt(chatFolder.deletedAtTimestampMs),
+    emoji: chatFolder.emoji,
+    color: TrukiSpaceColor.toWire(chatFolder.color),
+    hideFromAllChats: chatFolder.hideFromAllChats,
     $unknown: fromStorageUnknownFields(chatFolder.storageUnknownFields),
   };
 }
@@ -2797,6 +2801,19 @@ function protoToChatFolderType(
   return ChatFolderType.UNKNOWN;
 }
 
+export function trukiChatFolderFieldsFromRecord(
+  remoteChatFolderRecord: Pick<
+    Proto.ChatFolderRecord,
+    'emoji' | 'color' | 'hideFromAllChats'
+  >
+): Pick<ChatFolder, 'emoji' | 'color' | 'hideFromAllChats'> {
+  return {
+    emoji: remoteChatFolderRecord.emoji ?? null,
+    color: TrukiSpaceColor.fromWire(remoteChatFolderRecord.color ?? 0),
+    hideFromAllChats: remoteChatFolderRecord.hideFromAllChats ?? false,
+  };
+}
+
 function recipientToConversationId(
   recipient: Proto.Recipient,
   logPrefix: string
@@ -2894,6 +2911,7 @@ export async function mergeChatFolderRecord(
       remoteChatFolderRecord.excludedRecipients ?? [],
       logPrefix
     ),
+    ...trukiChatFolderFieldsFromRecord(remoteChatFolderRecord),
     deletedAtTimestampMs,
 
     storageID,

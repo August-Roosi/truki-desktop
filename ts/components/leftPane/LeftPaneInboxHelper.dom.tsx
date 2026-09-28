@@ -144,7 +144,9 @@ export class LeftPaneInboxHelper extends LeftPaneHelper<LeftPaneInboxPropsType> 
   }: Readonly<{
     renderLeftPaneChatFolders: () => JSX.Element;
   }>): ReactNode {
-    return renderLeftPaneChatFolders();
+    // Truki: the space selector lives in the header now, see TrukiSpaceBar.
+    void renderLeftPaneChatFolders;
+    return null;
   }
 
   override getEmptyViewNode({

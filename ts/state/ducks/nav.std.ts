@@ -51,6 +51,7 @@ function getDefaultPanels(): PanelInfo {
 export type NavStateType = ReadonlyDeep<{
   selectedLocation: Location;
   lastChatTabLocation?: Location;
+  lastNonSettingsLocation?: Location;
 }>;
 
 // Actions
@@ -280,7 +281,14 @@ export function reducer(
 ): NavStateType {
   if (action.type === CHANGE_LOCATION) {
     let { selectedLocation } = action.payload;
-    let { lastChatTabLocation } = state;
+    let { lastChatTabLocation, lastNonSettingsLocation } = state;
+
+    if (
+      selectedLocation.tab === NavTab.Settings &&
+      state.selectedLocation.tab !== NavTab.Settings
+    ) {
+      lastNonSettingsLocation = state.selectedLocation;
+    }
 
     // Save last Chats Tab location if switching away from Chats Tab
     if (
@@ -306,6 +314,7 @@ export function reducer(
       ...state,
       selectedLocation,
       lastChatTabLocation,
+      lastNonSettingsLocation,
     };
   }
 

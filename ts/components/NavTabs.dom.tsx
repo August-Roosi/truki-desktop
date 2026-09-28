@@ -12,6 +12,8 @@ import { Theme } from '../util/theme.std.ts';
 import type { UnreadStats } from '../util/countUnreadStats.std.ts';
 import { getUnreadCountForBadge } from '../util/countUnreadStats.std.ts';
 import type { UnreadCountBadgeType } from '../types/StorageKeys.std.ts';
+import { tw } from '../axo/tw.dom.tsx';
+import { TrukiSidebarNavigationProvider } from './truki/TrukiSidebarNavigation.dom.tsx';
 
 type NavTabsItemBadgesProps = Readonly<{
   i18n: LocalizerType;
@@ -190,6 +192,7 @@ export type NavTabsProps = Readonly<{
   renderSettingsTab: () => ReactNode;
   selectedNavTab: NavTab;
   storiesEnabled: boolean;
+  trukiSidebarNavigation?: boolean;
   unreadCallsCount: number;
   unreadConversationsStats: UnreadStats;
   unreadCountBadgeType: UnreadCountBadgeType;
@@ -209,6 +212,7 @@ export function NavTabs({
   renderSettingsTab,
   selectedNavTab,
   storiesEnabled,
+  trukiSidebarNavigation,
   unreadCallsCount,
   unreadConversationsStats,
   unreadCountBadgeType,
@@ -234,6 +238,30 @@ export function NavTabs({
     } else {
       onChangeLocation({ tab });
     }
+  }
+
+  if (trukiSidebarNavigation) {
+    return (
+      <TrukiSidebarNavigationProvider
+        hasFailedStorySends={hasFailedStorySends}
+        hasPendingUpdate={hasPendingUpdate}
+        i18n={i18n}
+        onSelectTab={tab => handleSelectionChange(tab)}
+        selectedNavTab={selectedNavTab}
+        storiesEnabled={storiesEnabled}
+        unreadCallsCount={unreadCallsCount}
+        unreadConversationsStats={unreadConversationsStats}
+        unreadCountBadgeType={unreadCountBadgeType}
+        unreadStoriesCount={unreadStoriesCount}
+      >
+        <div className={tw('relative flex size-full min-w-0')}>
+          {selectedNavTab === NavTab.Chats && renderChatsTab()}
+          {selectedNavTab === NavTab.Calls && renderCallsTab()}
+          {selectedNavTab === NavTab.Stories && renderStoriesTab()}
+          {selectedNavTab === NavTab.Settings && renderSettingsTab()}
+        </div>
+      </TrukiSidebarNavigationProvider>
+    );
   }
 
   return (

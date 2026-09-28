@@ -397,6 +397,13 @@ message ChatFolderRecord {
   repeated Recipient includedRecipients = 9;
   repeated Recipient excludedRecipients = 10;
   uint64 deletedAtTimestampMs = 11;   // When non-zero, `position` should be set to 4294967295 (2^32-1) and `includedRecipients` should be empty
+
+  // ---- Truki extensions ----
+  // Field numbers >= 20001 are reserved for Truki so upstream additions
+  // (which continue from 12) can never collide. Protobuf reserves 19000-19999.
+  optional string emoji  = 20001;
+  fixed32 color          = 20002;  // 0xAARRGGBB, 0 means unset
+  bool hideFromAllChats  = 20003;
 }
 
 message NotificationProfile {

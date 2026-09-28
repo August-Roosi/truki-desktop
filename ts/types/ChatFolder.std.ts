@@ -27,6 +27,7 @@ export type ChatFolderPreset = Simplify<
     includeAllGroupChats: boolean;
     includedConversationIds: ReadonlyArray<string>;
     excludedConversationIds: ReadonlyArray<string>;
+    hideFromAllChats: boolean;
   }>
 >;
 
@@ -34,6 +35,8 @@ export type ChatFolderParams = Simplify<
   Readonly<
     ChatFolderPreset & {
       name: string;
+      emoji: string | null;
+      color: number | null;
     }
   >
 >;
@@ -60,32 +63,41 @@ const ChatFolderPresetSchema = z.object({
   includeAllGroupChats: z.boolean(),
   includedConversationIds: z.array(z.string().uuid()).readonly(),
   excludedConversationIds: z.array(z.string().uuid()).readonly(),
+  hideFromAllChats: z.boolean(),
 }) satisfies z.ZodType<ChatFolderPreset>;
 
 export const ChatFolderParamsSchema = ChatFolderPresetSchema.extend({
   name: z.string().transform(input => input.normalize().trim()),
+  emoji: z.string().nullable(),
+  color: z.number().int().nullable(),
 }) satisfies z.ZodType<ChatFolderParams>;
 
 export const CHAT_FOLDER_DEFAULTS: ChatFolderParams = {
   folderType: ChatFolderType.CUSTOM,
   name: '',
+  emoji: null,
+  color: null,
   showOnlyUnread: false,
   showMutedChats: true,
   includeAllIndividualChats: false,
   includeAllGroupChats: false,
   includedConversationIds: [],
   excludedConversationIds: [],
+  hideFromAllChats: false,
 };
 
 export const ALL_CHATS_FOLDER_REQUIRED_PARAMS: ChatFolderParams = {
   folderType: ChatFolderType.ALL,
   name: '',
+  emoji: null,
+  color: null,
   showOnlyUnread: false,
   showMutedChats: true,
   includeAllIndividualChats: true,
   includeAllGroupChats: true,
   includedConversationIds: [],
   excludedConversationIds: [],
+  hideFromAllChats: false,
 };
 
 export const CHAT_FOLDER_PRESETS = {
@@ -122,6 +134,7 @@ export function matchesChatFolderPreset(
     params.showMutedChats === preset.showMutedChats &&
     params.includeAllIndividualChats === preset.includeAllIndividualChats &&
     params.includeAllGroupChats === preset.includeAllGroupChats &&
+    params.hideFromAllChats === preset.hideFromAllChats &&
     isSameConversationIds(
       params.includedConversationIds,
       preset.includedConversationIds
@@ -137,7 +150,12 @@ export function isSameChatFolderParams(
   a: ChatFolderParams,
   b: ChatFolderParams
 ): boolean {
-  return a.name === b.name && matchesChatFolderPreset(a, b);
+  return (
+    a.name === b.name &&
+    a.emoji === b.emoji &&
+    a.color === b.color &&
+    matchesChatFolderPreset(a, b)
+  );
 }
 
 function isSameConversationIds(
@@ -155,6 +173,12 @@ type ConversationPropsForChatFolder = Pick<
 export type ChatFolderConversationFilterOptions = Readonly<{
   ignoreShowOnlyUnread?: boolean;
   ignoreShowMutedChats?: boolean;
+  /**
+   * Truki: live spaces with hideFromAllChats set. A conversation claimed by
+   * any of them is omitted from the All-chats folder. Absent means nothing
+   * is hidden, which is upstream's behaviour.
+   */
+  hidingChatFolders?: ReadonlyArray<ChatFolder>;
 }>;
 
 function _isConversationIncludedInChatFolder(
@@ -200,7 +224,12 @@ export function isConversationInChatFolder(
   options: ChatFolderConversationFilterOptions = {}
 ): boolean {
   if (chatFolder.folderType === ChatFolderType.ALL) {
-    return true;
+    return !options.hidingChatFolders?.some(hidingFolder =>
+      isConversationInChatFolder(hidingFolder, conversation, {
+        ignoreShowOnlyUnread: true,
+        ignoreShowMutedChats: true,
+      })
+    );
   }
 
   return (

@@ -374,7 +374,10 @@ function ChatFolderPresetItem(props: ChatFolderPresetItemProps) {
   const { title, preset } = config;
 
   const handleCreateChatFolder = useCallback(() => {
-    onCreateChatFolder({ ...preset, name: title }, true);
+    onCreateChatFolder(
+      { ...preset, name: title, emoji: null, color: null },
+      true
+    );
   }, [onCreateChatFolder, title, preset]);
 
   return (
@@ -420,7 +423,12 @@ function ChatFolderListItem(props: {
         <ListBoxItem
           id={chatFolder.id}
           data-testid={`ChatFolder--${chatFolder.id}`}
-          className={classNames(itemClassName, itemListItemClassName)}
+          onAction={handleClickChatFolder}
+          className={classNames(
+            itemClassName,
+            itemListItemClassName,
+            itemClickableClassName
+          )}
         >
           <ItemContent>
             <ItemAvatar kind="Folder" />

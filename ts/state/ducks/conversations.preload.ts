@@ -238,7 +238,10 @@ import { MessageRequestResponseSource } from '../../types/MessageRequestResponse
 import { JobCancelReason } from '../../jobs/types.std.ts';
 import type { ChatFolderId } from '../../types/ChatFolder.std.ts';
 import { isConversationInChatFolder } from '../../types/ChatFolder.std.ts';
-import { getCurrentChatFolders } from '../selectors/chatFolders.std.ts';
+import {
+  getCurrentChatFolders,
+  getHidingChatFolders,
+} from '../selectors/chatFolders.std.ts';
 import { isConversationUnread } from '../../util/isConversationUnread.std.ts';
 import { CurrentChatFolders } from '../../types/CurrentChatFolders.std.ts';
 import { itemStorage } from '../../textsecure/Storage.preload.ts';
@@ -1475,8 +1478,11 @@ function _getAllConversationsInChatFolder(
     '_getAllConversationsInChatFolder'
   );
   const allConversations = getAllConversations(state);
+  const hidingChatFolders = getHidingChatFolders(state);
   return allConversations.filter(conversation => {
-    return isConversationInChatFolder(chatFolder, conversation);
+    return isConversationInChatFolder(chatFolder, conversation, {
+      hidingChatFolders,
+    });
   });
 }
 

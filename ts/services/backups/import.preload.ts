@@ -4066,6 +4066,9 @@ export class BackupImportStream extends Writable {
         strictAssert(convo != null, 'Missing chat folder included recipient');
         return convo.id;
       }),
+      hideFromAllChats: false,
+      emoji: null,
+      color: null,
       position,
       deletedAtTimestampMs: 0,
       storageID: null,

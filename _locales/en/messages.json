@@ -455,6 +455,14 @@
     "messageformat": "All chats",
     "description": "Left Pane > Inbox > Chat List > Chat Folders > Item Label > All chats"
   },
+  "icu:TrukiSpaceBar__GeneralLabel": {
+    "messageformat": "General",
+    "description": "Left pane space bar > the permanent General space, when it has not been renamed"
+  },
+  "icu:TrukiSpaceBar__GeneralLabel--Short": {
+    "messageformat": "General",
+    "description": "Left pane space bar > General, collapsed pill (very small space)"
+  },
   "icu:LeftPaneChatFolders__ItemUnreadBadge__AccessibleLabel": {
     "messageformat": "{count, plural, one {# Unread Message} other {# Unread Messages}}",
     "description": "Left Pane > Inbox > Chat List > Chat Folders > Item > Badge Count > Accessible Label"
@@ -2302,6 +2310,18 @@
     "messageformat": "Edit folder",
     "description": "Preferences > Create/Edit Chat Folder Page > Title (When editing existing chat folder)"
   },
+  "icu:Preferences__EditChatFolderPage__Icon__Label": {
+    "messageformat": "Icon",
+    "description": "Label for the emoji picker that sets a space's icon."
+  },
+  "icu:Preferences__EditChatFolderPage__Color__Label": {
+    "messageformat": "Color",
+    "description": "Label for the colour picker that sets a space's accent colour."
+  },
+  "icu:Preferences__EditChatFolderPage__Color__None": {
+    "messageformat": "Default",
+    "description": "Colour picker option meaning the space uses the default accent."
+  },
   "icu:Preferences__EditChatFolderPage__FolderNameField__Label": {
     "messageformat": "Folder name",
     "description": "Preferences > Edit Chat Folder Page > Folder Name Field > Label"
@@ -2385,6 +2405,10 @@
   "icu:Preferences__EditChatFolderPage__IncludeMutedChatsCheckbox__Label": {
     "messageformat": "Include muted chats",
     "description": "Preferences > Edit Chat Folder Page > Include Muted Chats Checkbox > Label"
+  },
+  "icu:Preferences__EditChatFolderPage__HideFromGeneral__Label": {
+    "messageformat": "Hide these chats from General",
+    "description": "Checkbox label. When on, this space's chats do not appear in the General space."
   },
   "icu:Preferences__EditChatFolderPage__DeleteFolderButton": {
     "messageformat": "Delete folder",

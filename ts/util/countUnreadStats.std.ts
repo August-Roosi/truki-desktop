@@ -1,7 +1,10 @@
 // Copyright 2023 Signal Messenger, LLC
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { isConversationInChatFolder } from '../types/ChatFolder.std.ts';
+import {
+  isConversationInChatFolder,
+  type ChatFolder,
+} from '../types/ChatFolder.std.ts';
 import { CurrentChatFolders } from '../types/CurrentChatFolders.std.ts';
 import { isConversationMuted } from './isConversationMuted.std.ts';
 
@@ -196,7 +199,8 @@ export function countAllConversationsUnreadStats(
 export function countAllChatFoldersUnreadStats(
   currentChatFolders: CurrentChatFolders,
   conversations: ReadonlyArray<ConversationPropsForUnreadStats>,
-  options: UnreadStatsOptions
+  options: UnreadStatsOptions,
+  hidingChatFolders?: ReadonlyArray<ChatFolder>
 ): AllChatFoldersUnreadStats {
   const results = new Map<ChatFolderId, MutableUnreadStats>();
   const sortedChatFolders =
@@ -221,7 +225,11 @@ export function countAllChatFoldersUnreadStats(
 
     // check which chatFolders should count this conversation
     for (const chatFolder of sortedChatFolders) {
-      if (isConversationInChatFolder(chatFolder, conversation)) {
+      if (
+        isConversationInChatFolder(chatFolder, conversation, {
+          hidingChatFolders,
+        })
+      ) {
         let unreadStats = results.get(chatFolder.id);
         if (unreadStats == null) {
           unreadStats = _createUnreadStats();

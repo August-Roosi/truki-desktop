@@ -1,7 +1,7 @@
 // Copyright 2019 Signal Messenger, LLC
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { memo, useCallback, type JSX } from 'react';
+import { memo, useCallback, useContext, type JSX } from 'react';
 import { useSelector } from 'react-redux';
 import { createSelector } from 'reselect';
 import type { PropsType as DialogExpiredBuildPropsType } from '../../components/DialogExpiredBuild.dom.tsx';
@@ -123,16 +123,27 @@ import {
 import OS from '../../util/os/osPreload.preload.ts';
 import { useNavActions } from '../ducks/nav.std.ts';
 import { SmartLeftPaneChatFolders } from './LeftPaneChatFolders.preload.tsx';
+import { TrukiSpaceBar } from '../../components/leftPane/TrukiSpaceBar.dom.tsx';
+import { NavSidebarWidthBreakpointContext } from '../../components/NavSidebar.dom.tsx';
 import { SmartLeftPaneConversationListItemContextMenu } from './LeftPaneConversationListItemContextMenu.preload.tsx';
 import type { RenderConversationListItemContextMenuProps } from '../../components/conversationList/BaseConversationListItem.dom.tsx';
 import {
   getHasAnyCurrentCustomChatFolders,
+  getCurrentChatFolders,
   getSelectedChatFolder,
 } from '../selectors/chatFolders.std.ts';
 import { NavTab, SettingsPage } from '../../types/Nav.std.ts';
 import { SmartNotificationProfilesMenu } from './NotificationProfilesMenu.preload.tsx';
 import { getActiveProfile } from '../selectors/notificationProfiles.dom.ts';
 import type { StateSelector } from '../types.std.ts';
+import { useTrukiSpaceAccent } from '../../hooks/useTrukiSpaceAccent.dom.ts';
+import {
+  getAllChatFoldersMutedStats,
+  getAllChatFoldersUnreadStats,
+} from '../selectors/conversations.dom.ts';
+import { getUnreadCountBadgeType } from '../selectors/items.dom.ts';
+import { useChatFolderActions } from '../ducks/chatFolders.preload.ts';
+import type { ChatFolderId } from '../../types/ChatFolder.std.ts';
 import {
   DialogClockSkew,
   type PropsType as DialogClockSkewPropsType,
@@ -178,6 +189,58 @@ function renderExpiredBuildDialog(
 function renderLeftPaneChatFolders(): JSX.Element {
   return <SmartLeftPaneChatFolders />;
 }
+function renderTrukiSpaceBar(): JSX.Element {
+  return <SmartTrukiSpaceBar />;
+}
+
+const SmartTrukiSpaceBar = memo(function SmartTrukiSpaceBar() {
+  const i18n = useSelector(getIntl);
+  const currentChatFolders = useSelector(getCurrentChatFolders);
+  const allChatFoldersUnreadStats = useSelector(getAllChatFoldersUnreadStats);
+  const allChatFoldersMutedStats = useSelector(getAllChatFoldersMutedStats);
+  const unreadCountBadgeType = useSelector(getUnreadCountBadgeType);
+  const selectedChatFolder = useSelector(getSelectedChatFolder);
+  const navSidebarWidthBreakpoint = useContext(
+    NavSidebarWidthBreakpointContext
+  );
+  const location = useSelector(getSelectedLocation);
+
+  const { updateSelectedChatFolderId } = useChatFolderActions();
+  const { changeLocation } = useNavActions();
+  const { markChatFolderRead, setChatFolderMuteExpiration } =
+    useConversationsActions();
+
+  const handleChatFolderOpenSettings = useCallback(
+    (chatFolderId: ChatFolderId) => {
+      changeLocation({
+        tab: NavTab.Settings,
+        details: {
+          page: SettingsPage.EditChatFolder,
+          chatFolderId,
+          initChatFolderParams: null,
+          previousLocation: location,
+        },
+      });
+    },
+    [changeLocation, location]
+  );
+
+  return (
+    <TrukiSpaceBar
+      i18n={i18n}
+      navSidebarWidthBreakpoint={navSidebarWidthBreakpoint}
+      currentChatFolders={currentChatFolders}
+      allChatFoldersUnreadStats={allChatFoldersUnreadStats}
+      allChatFoldersMutedStats={allChatFoldersMutedStats}
+      unreadCountBadgeType={unreadCountBadgeType}
+      selectedChatFolder={selectedChatFolder}
+      onSelectedChatFolderIdChange={updateSelectedChatFolderId}
+      onChatFolderMarkRead={markChatFolderRead}
+      onChatFolderUpdateMute={setChatFolderMuteExpiration}
+      onChatFolderOpenSettings={handleChatFolderOpenSettings}
+    />
+  );
+});
 function renderUnsupportedOSDialog(
   props: Readonly<SmartUnsupportedOSDialogPropsType>
 ): JSX.Element {
@@ -338,6 +401,7 @@ export const SmartLeftPane = memo(function SmartLeftPane({
   const navTabsCollapsed = useSelector(getNavTabsCollapsed);
   const preferredWidthFromStorage = useSelector(getPreferredLeftPaneWidth);
   const selectedChatFolder = useSelector(getSelectedChatFolder);
+  useTrukiSpaceAccent(selectedChatFolder?.color ?? null);
   const selectedConversationId = useSelector(getSelectedConversationId);
   const showArchived = useSelector(getShowArchived);
   const targetedMessage = useSelector(getTargetedMessage);
@@ -498,6 +562,7 @@ export const SmartLeftPane = memo(function SmartLeftPane({
       renderClockSkewDialog={renderClockSkewDialog}
       renderExpiredBuildDialog={renderExpiredBuildDialog}
       renderLeftPaneChatFolders={renderLeftPaneChatFolders}
+      renderTrukiSpaceBar={renderTrukiSpaceBar}
       renderMessageSearchResult={renderMessageSearchResult}
       renderConversationListItemContextMenu={
         renderConversationListItemContextMenu
