@@ -71,6 +71,7 @@ import { useUpdatesActions } from '../ducks/updates.preload.ts';
 import { getUpdateDialogType } from '../selectors/updates.std.ts';
 import { getHasAnyFailedStorySends } from '../selectors/stories.preload.ts';
 import {
+  getLastNonSettingsLocation,
   getSelectedConversationId,
   getSelectedLocation,
 } from '../selectors/nav.std.ts';
@@ -244,6 +245,7 @@ export function SmartPreferences(): JSX.Element | null {
   // Selectors
 
   const currentLocation = useSelector(getSelectedLocation);
+  const lastNonSettingsLocation = useSelector(getLastNonSettingsLocation);
   const customColors = useSelector(getCustomColors) ?? {};
   const getConversationsWithCustomColor = useSelector(
     getConversationsWithCustomColorSelector
@@ -1007,6 +1009,15 @@ export function SmartPreferences(): JSX.Element | null {
     });
   };
 
+  const exitSettings = () => {
+    changeLocation(
+      lastNonSettingsLocation ?? {
+        tab: NavTab.Chats,
+        details: { conversationId: undefined },
+      }
+    );
+  };
+
   return (
     <AppProvider>
       <Preferences
@@ -1139,6 +1150,7 @@ export function SmartPreferences(): JSX.Element | null {
         onNotificationAttentionChange={onNotificationAttentionChange}
         onNotificationContentChange={onNotificationContentChange}
         onNotificationsChange={onNotificationsChange}
+        onExitSettings={exitSettings}
         onNotifyWhileMutedChange={onNotifyWhileMutedChange}
         onStartUpdate={startUpdate}
         onPreferContactAvatarsChange={onPreferContactAvatarsChange}

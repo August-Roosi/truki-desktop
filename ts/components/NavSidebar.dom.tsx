@@ -22,6 +22,11 @@ import {
 import { WidthBreakpoint, getNavSidebarWidthBreakpoint } from './_util.std.ts';
 import type { SmartPropsType as SmartToastManagerPropsType } from '../state/smart/ToastManager.preload.tsx';
 import { AxoDragRegion } from '../axo/AxoDragRegion.dom.tsx';
+import { tw } from '../axo/tw.dom.tsx';
+import {
+  TrukiSidebarNavigation,
+  useTrukiSidebarNavigationVisible,
+} from './truki/TrukiSidebarNavigation.dom.tsx';
 
 export const NavSidebarWidthBreakpointContext =
   createContext<WidthBreakpoint | null>(null);
@@ -68,6 +73,8 @@ export type NavSidebarProps = Readonly<{
   title: string;
   /** Truki: replaces the <h1> title when provided. Chats tab only. */
   titleSlot?: ReactNode;
+  /** Truki: shows the preferences categories as an inset settings panel. */
+  trukiSettingsLayout?: boolean;
   otherTabsUnreadCount: number;
   renderToastManager: (_: SmartToastManagerPropsType) => JSX.Element;
 }>;
@@ -93,20 +100,23 @@ export function NavSidebar({
   savePreferredLeftPaneWidth,
   title,
   titleSlot,
+  trukiSettingsLayout,
   otherTabsUnreadCount,
   renderToastManager,
 }: NavSidebarProps): JSX.Element {
   const isRTL = i18n.getLocaleDirection() === 'rtl';
+  const hasTrukiNavigation = useTrukiSidebarNavigationVisible();
+  const effectiveRequiresFullWidth = requiresFullWidth || hasTrukiNavigation;
   const [dragState, setDragState] = useState(DragState.INITIAL);
 
   const [preferredWidth, setPreferredWidth] = useState(() => {
     return getWidthFromPreferredWidth(preferredLeftPaneWidth, {
-      requiresFullWidth,
+      requiresFullWidth: effectiveRequiresFullWidth,
     });
   });
 
   const width = getWidthFromPreferredWidth(preferredWidth, {
-    requiresFullWidth,
+    requiresFullWidth: effectiveRequiresFullWidth,
   });
 
   const widthBreakpoint = getNavSidebarWidthBreakpoint(width);
@@ -179,15 +189,27 @@ export function NavSidebar({
     <NavSidebarWidthBreakpointContext.Provider value={widthBreakpoint}>
       <div
         role="navigation"
-        className={classNames('NavSidebar', {
-          'NavSidebar--narrow': widthBreakpoint === WidthBreakpoint.Narrow,
-        })}
-        style={{ width }}
+        className={classNames(
+          'NavSidebar',
+          {
+            'NavSidebar--narrow': widthBreakpoint === WidthBreakpoint.Narrow,
+          },
+          trukiSettingsLayout &&
+            tw(
+              'max-h-full max-w-[360px] self-start overflow-hidden rounded-[18px]',
+              'border border-primary bg-primary pt-0 pb-3'
+            )
+        )}
+        style={{
+          width: trukiSettingsLayout ? '100%' : width,
+          height: trukiSettingsLayout ? 'fit-content' : undefined,
+          alignSelf: trukiSettingsLayout ? 'start' : undefined,
+        }}
       >
         {!hideHeader && (
           <AxoDragRegion.Root>
             <div className="NavSidebar__Header">
-              {onBack == null && navTabsCollapsed && (
+              {onBack == null && navTabsCollapsed && !hasTrukiNavigation && (
                 <NavTabsToggle
                   i18n={i18n}
                   navTabsCollapsed={navTabsCollapsed}
@@ -200,7 +222,7 @@ export function NavSidebar({
               <div
                 className={classNames('NavSidebar__HeaderContent', {
                   'NavSidebar__HeaderContent--navTabsCollapsed':
-                    navTabsCollapsed,
+                    navTabsCollapsed && !hasTrukiNavigation,
                   'NavSidebar__HeaderContent--withBackButton': onBack != null,
                 })}
               >
@@ -236,19 +258,23 @@ export function NavSidebar({
 
         <div className="NavSidebar__Content">{children}</div>
 
-        <div
-          className={classNames('NavSidebar__DragHandle', {
-            'NavSidebar__DragHandle--dragging':
-              dragState === DragState.DRAGGING,
-          })}
-          role="separator"
-          aria-orientation="vertical"
-          aria-valuemin={MIN_WIDTH}
-          aria-valuemax={preferredLeftPaneWidth}
-          aria-valuenow={MAX_WIDTH}
-          tabIndex={0}
-          {...moveProps}
-        />
+        <TrukiSidebarNavigation />
+
+        {!trukiSettingsLayout && (
+          <div
+            className={classNames('NavSidebar__DragHandle', {
+              'NavSidebar__DragHandle--dragging':
+                dragState === DragState.DRAGGING,
+            })}
+            role="separator"
+            aria-orientation="vertical"
+            aria-valuemin={MIN_WIDTH}
+            aria-valuemax={preferredLeftPaneWidth}
+            aria-valuenow={MAX_WIDTH}
+            tabIndex={0}
+            {...moveProps}
+          />
+        )}
 
         {renderToastManager({
           containerWidthBreakpoint: widthBreakpoint,

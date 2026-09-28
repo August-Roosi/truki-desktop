@@ -22,6 +22,10 @@ export const getSelectedLocation = createSelector(getNav, nav => {
   return nav.selectedLocation;
 });
 
+export const getLastNonSettingsLocation = createSelector(getNav, nav => {
+  return nav.lastNonSettingsLocation;
+});
+
 export const getSelectedConversationId = createSelector(
   getSelectedLocation,
   (selectedLocation: Location): string | undefined => {

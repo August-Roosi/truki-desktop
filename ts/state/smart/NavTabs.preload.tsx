@@ -77,6 +77,7 @@ export const SmartNavTabs = memo(function SmartNavTabs({
       renderSettingsTab={renderSettingsTab}
       selectedNavTab={selectedNavTab}
       storiesEnabled={storiesEnabled}
+      trukiSidebarNavigation
       unreadCallsCount={unreadCallsCount}
       unreadConversationsStats={unreadConversationsStats}
       unreadStoriesCount={unreadStoriesCount}

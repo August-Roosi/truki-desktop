@@ -116,6 +116,7 @@ import { AxoSwitchItem } from '../axo/items/AxoSwitchItem.dom.tsx';
 import { AxoSelectItem } from '../axo/items/AxoSelectItem.dom.tsx';
 import { AxoClickableItem } from '../axo/items/AxoClickableItem.dom.tsx';
 import { AxoTextItem } from '../axo/items/AxoTextItem.dom.tsx';
+import { TrukiSettingsHeader } from './truki/TrukiSettingsHeader.dom.tsx';
 
 const { isNumber, noop, partition } = lodash;
 
@@ -298,6 +299,7 @@ type PropsFunctionType = {
   pauseBackupMediaDownload: () => void;
   getConversationsWithCustomColor: (colorId: string) => Array<ConversationType>;
   makeSyncRequest: () => unknown;
+  onExitSettings?: () => void;
   onStartUpdate: () => unknown;
   pickLocalBackupFolder: () => Promise<string | undefined>;
   refreshCloudBackupStatus: () => void;
@@ -567,6 +569,7 @@ export function Preferences({
   onNotificationAttentionChange,
   onNotificationContentChange,
   onNotificationsChange,
+  onExitSettings,
   onNotifyWhileMutedChange,
   onPinRemindersChange,
   onPreferContactAvatarsChange,
@@ -2580,19 +2583,37 @@ export function Preferences({
   }
   return (
     <>
-      <div className="Preferences">
+      <div
+        className={classNames(
+          'Preferences',
+          onExitSettings != null &&
+            tw(
+              'grid grid-cols-[minmax(280px,360px)_minmax(440px,1fr)]',
+              'grid-rows-[auto_minmax(0,1fr)] gap-x-5 overflow-hidden px-5 pb-14',
+              '[&_.Preferences__content]:h-full [&_.Preferences__content]:min-h-0',
+              '[&_.Preferences__settings-pane]:max-w-none [&_.Preferences__settings-pane-spacer]:hidden',
+              '[&_.Preferences__title]:mt-0'
+            )
+        )}
+        style={onExitSettings != null ? { display: 'grid' } : undefined}
+      >
+        {onExitSettings != null && (
+          <TrukiSettingsHeader i18n={i18n} onBack={onExitSettings} />
+        )}
         <NavSidebar
           title={i18n('icu:Preferences--header')}
           i18n={i18n}
           otherTabsUnreadCount={otherTabsUnreadCount}
           hasFailedStorySends={hasFailedStorySends}
           hasPendingUpdate={false}
+          hideHeader={onExitSettings != null}
           navTabsCollapsed={navTabsCollapsed}
           onToggleNavTabsCollapse={onToggleNavTabsCollapse}
           preferredLeftPaneWidth={preferredWidthFromStorage}
           requiresFullWidth
           savePreferredLeftPaneWidth={savePreferredLeftPaneWidth}
           renderToastManager={renderToastManager}
+          trukiSettingsLayout={onExitSettings != null}
         >
           <div className="Preferences__page-selector">
             {maybeUpdateDialog ? (

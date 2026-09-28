@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "targets": {
+    "inbox-shell": {
+      "targetKind": "existing-ui",
+      "projectId": "8831bdfc-7f18-4022-a7ab-7f471780e1ef",
+      "baselineDraftId": "e5cb3b55-0977-4aa8-9c94-2a3d6702467e",
+      "activeDraftId": "e5cb3b55-0977-4aa8-9c94-2a3d6702467e",
+      "designSystemPath": ".superdesign/design-system.md",
+      "contextFiles": [
+        ".superdesign/design-system.md",
+        "ts/components/Inbox.dom.tsx",
+        "ts/components/NavTabs.dom.tsx",
+        "ts/components/NavSidebar.dom.tsx",
+        "ts/components/truki/TrukiSidebarNavigation.dom.tsx",
+        "ts/components/truki/TrukiSettingsHeader.dom.tsx",
+        "ts/types/Nav.std.ts",
+        "ts/state/ducks/nav.std.ts:45:325",
+        "ts/state/selectors/nav.std.ts",
+        "ts/state/smart/NavTabs.preload.tsx",
+        "ts/state/smart/Preferences.preload.tsx:65:85",
+        "ts/state/smart/Preferences.preload.tsx:230:265",
+        "ts/state/smart/Preferences.preload.tsx:995:1030",
+        "ts/components/Preferences.dom.tsx:250:650",
+        "ts/components/Preferences.dom.tsx:2575:2810",
+        "stylesheets/components/NavTabs.scss",
+        "stylesheets/components/NavSidebar.scss",
+        "stylesheets/components/Preferences.scss:1:205",
+        "ts/axo/AxoIconButton.dom.tsx",
+        "ts/axo/AxoSymbol.dom.tsx"
+      ],
+      "fingerprints": {
+        ".superdesign/design-system.md": "294427f5e3ac04f1366b1b1da35330e31e0f50e2c8e0eb394fabc0325a38742e",
+        "ts/components/Inbox.dom.tsx": "ff7e4ce3fe5610f62482b24fb1d139839b3de10f706ae3aa7a9f3ac8f70efaea",
+        "ts/components/NavTabs.dom.tsx": "62b18348dd0e101325e52197e20e6523199ca1830c8b9a94fe687d9b0179300e",
+        "ts/components/NavSidebar.dom.tsx": "8f16307ebbfc3a28437c635fc3d0c1c7d053cb1c8192e8d8b17c96ca8e2e8b5b",
+        "ts/components/truki/TrukiSidebarNavigation.dom.tsx": "2f9cb5ea27eb095b2613bd958f8eed13b575623f9f8259c6bfb6f3a02dd2befc",
+        "ts/components/truki/TrukiSettingsHeader.dom.tsx": "2bf533e161ba58467bf24e1befa6e678e2e639a008b14dd46251af257d17cacf",
+        "ts/types/Nav.std.ts": "5b61f3c1561e98725f3107e5381ad6a0dcb7ca068c5e71db58c37b16daf8e43c",
+        "ts/state/ducks/nav.std.ts": "d6068e10c7e923aef8466655ab07df54698a430440b9ea61c3f1e3ee6ff35e59",
+        "ts/state/selectors/nav.std.ts": "078b773cdcd25dd981fcccb8ad3936c4ff2dfc1214cad63f160bd20b459191dd",
+        "ts/state/smart/NavTabs.preload.tsx": "05f626698c8a4992a9f2fa906d874609b33641673887736b91919db6a0b7eea3",
+        "ts/state/smart/Preferences.preload.tsx": "d3d7b0c2715eaf656c524b1ad1a61544eb09e13a6114696da1e495d07395f9ef",
+        "ts/components/Preferences.dom.tsx": "4338e23c5a280e38d691482233b2df2732a1820b6084d59d63c463573b270157",
+        "stylesheets/components/NavTabs.scss": "63a6e2b535f5f7215ce84bb64c80bb413bc23b92ee5aa158377c92025d2fa1da",
+        "stylesheets/components/NavSidebar.scss": "01bb86092099a8412285175f9446572b4b0ef6808588412d8b3a377a63cb1c7f",
+        "stylesheets/components/Preferences.scss": "3ced36569f94fd469db2d34c411aae65d04dd3359d2bd92aeb2a3bbaa4da08f7",
+        "ts/axo/AxoIconButton.dom.tsx": "afb93a72ccf8f44ce36bfc7ff15ae2619b700b3d85fd8835f3e8c7376d994aa0",
+        "ts/axo/AxoSymbol.dom.tsx": "ee9d6c1b5d545724efc014f65a2218e9e650aacf52e0c771aa6a8cde95efab58"
+      },
+      "components": [],
+      "drafts": {
+        "e5cb3b55-0977-4aa8-9c94-2a3d6702467e": {
+          "title": "Truki Desktop Inbox",
+          "visualDirection": "Integrated navigation pill 20px from the sidebar bottom with full-width settings and back action",
+          "currentVersion": 6
+        }
+      },
+      "updatedAt": "2026-09-26T18:15:56.3727770Z"
+    }
+  }
+}

@@ -25,6 +25,8 @@ import { isNotUpdatable } from '../../util/version.std.ts';
 import { BackupLevel } from '../../services/backups/types.std.ts';
 import type { StateSelector } from '../types.std.ts';
 import { Emoji } from '../../axo/emoji.std.ts';
+import { getTrukiConversationDefaultColor } from '../../util/getTrukiConversationDefaultColor.std.ts';
+import { getSelectedChatFolder } from './chatFolders.std.ts';
 
 const DEFAULT_PREFERRED_LEFT_PANE_WIDTH = 320;
 
@@ -137,15 +139,21 @@ export const getKeyTransparencyEnabled = createSelector(
 
 export const getDefaultConversationColor = createSelector(
   getItems,
+  getSelectedChatFolder,
   (
-    state: ItemsStateType
+    state: ItemsStateType,
+    selectedChatFolder
   ): {
     color: ConversationColorType;
     customColorData?: {
       id: string;
       value: CustomColorType;
     };
-  } => state.defaultConversationColor ?? DEFAULT_CONVERSATION_COLOR
+  } =>
+    getTrukiConversationDefaultColor(
+      state.defaultConversationColor ?? DEFAULT_CONVERSATION_COLOR,
+      selectedChatFolder
+    )
 );
 
 export const getCustomColors = createSelector(
