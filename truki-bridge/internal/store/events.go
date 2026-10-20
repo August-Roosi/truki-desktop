@@ -56,22 +56,20 @@ func (evt *Event) Scan(row dbutil.Scannable) (*Event, error) {
 
 // PutEvent upserts an event by its ID and reports whether a new row was
 // inserted (false when the event already existed). If StreamOrder is 0, it is
-// assigned as max(stream_order)+1 for the event's room.
+// assigned as max(stream_order)+1 for the event's room; the assignment happens
+// inside the INSERT statement (backed by the unique (room_id, stream_order)
+// index), so concurrent writers cannot claim the same order.
+//
+// Re-putting an existing event never changes its stream_order, never overwrites
+// a non-empty status or error_code with an empty one, and never un-redacts it.
 func (s *Store) PutEvent(ctx context.Context, evt *Event) (inserted bool, err error) {
-	if evt.StreamOrder == 0 {
-		var maxOrder sql.NullInt64
-		err = s.DB.QueryRow(ctx, `
-			SELECT MAX(stream_order) FROM event WHERE room_id = $1
-		`, evt.RoomID).Scan(&maxOrder)
-		if err != nil {
-			return false, err
-		}
-		evt.StreamOrder = maxOrder.Int64 + 1
-	}
-
 	res, err := s.DB.Exec(ctx, `
 		INSERT INTO event (id, room_id, sender, type, state_key, content, timestamp, stream_order, status, error_code, redacted, relates_to, rel_type)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		VALUES ($1, $2, $3, $4, $5, $6, $7,
+			CASE WHEN $8 = 0
+				THEN (SELECT COALESCE(MAX(stream_order), 0) + 1 FROM event WHERE room_id = $2)
+				ELSE $8 END,
+			$9, $10, $11, $12, $13)
 		ON CONFLICT (id) DO NOTHING
 	`, evt.ID, evt.RoomID, evt.Sender, evt.Type,
 		evt.StateKey, string(evt.Content), sqlNullInt64(evt.Timestamp), evt.StreamOrder,
@@ -89,11 +87,14 @@ func (s *Store) PutEvent(ctx context.Context, evt *Event) (inserted bool, err er
 	_, err = s.DB.Exec(ctx, `
 		UPDATE event SET
 			room_id = $2, sender = $3, type = $4, state_key = $5, content = $6,
-			timestamp = $7, stream_order = $8, status = $9, error_code = $10,
-			redacted = $11, relates_to = $12, rel_type = $13
+			timestamp = $7,
+			status = CASE WHEN $8 = '' THEN status ELSE $8 END,
+			error_code = CASE WHEN $9 = '' THEN error_code ELSE $9 END,
+			redacted = CASE WHEN $10 THEN 1 ELSE redacted END,
+			relates_to = $11, rel_type = $12
 		WHERE id = $1
 	`, evt.ID, evt.RoomID, evt.Sender, evt.Type,
-		evt.StateKey, string(evt.Content), sqlNullInt64(evt.Timestamp), evt.StreamOrder,
+		evt.StateKey, string(evt.Content), sqlNullInt64(evt.Timestamp),
 		evt.Status, evt.ErrorCode, evt.Redacted, evt.RelatesTo, evt.RelType)
 	return false, err
 }

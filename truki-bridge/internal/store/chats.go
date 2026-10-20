@@ -6,7 +6,10 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.mau.fi/util/dbutil"
@@ -67,20 +70,60 @@ func (s *Store) PutChat(ctx context.Context, chat *Chat) error {
 }
 
 // sqlNullInt64 returns a sql.NullInt64 for a time.Time, NULL for the zero time.
-// SQLite stores timestamps as integer seconds since the Unix epoch.
+// SQLite stores timestamps as integer milliseconds since the Unix epoch.
 func sqlNullInt64(t time.Time) sql.NullInt64 {
 	if t.IsZero() {
 		return sql.NullInt64{}
 	}
-	return sql.NullInt64{Int64: t.Unix(), Valid: true}
+	return sql.NullInt64{Int64: t.UnixMilli(), Valid: true}
 }
 
-// timeFromNullInt64 converts a sql.NullInt64 to time.Time, zero for NULL.
+// timeFromNullInt64 converts a sql.NullInt64 (unix milliseconds) to a
+// time.Time, zero for NULL.
 func timeFromNullInt64(n sql.NullInt64) time.Time {
 	if !n.Valid {
 		return time.Time{}
 	}
-	return time.Unix(n.Int64, 0)
+	return time.UnixMilli(n.Int64)
+}
+
+// chatActivityMillis returns a chat's last activity as unix milliseconds,
+// with 0 standing in for a NULL / zero last_activity.
+func chatActivityMillis(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixMilli()
+}
+
+// cursorSeparator separates the activity and id halves of a chat cursor.
+const cursorSeparator = "\x1f"
+
+// ErrBadCursor is returned when a ListChats cursor cannot be decoded.
+var ErrBadCursor = errors.New("invalid chat list cursor")
+
+// encodeChatCursor encodes a (last activity millis, chat id) pair as an
+// opaque cursor string for ListChats.
+func encodeChatCursor(activityMillis int64, chatID id.RoomID) string {
+	raw := strconv.FormatInt(activityMillis, 10) + cursorSeparator + string(chatID)
+	return base64.URLEncoding.EncodeToString([]byte(raw))
+}
+
+// decodeChatCursor decodes an opaque cursor produced by encodeChatCursor.
+func decodeChatCursor(cursor string) (activityMillis int64, chatID id.RoomID, err error) {
+	raw, err := base64.URLEncoding.DecodeString(cursor)
+	if err != nil {
+		return 0, "", err
+	}
+	activity, idStr, ok := strings.Cut(string(raw), cursorSeparator)
+	if !ok {
+		return 0, "", ErrBadCursor
+	}
+	activityMillis, err = strconv.ParseInt(activity, 10, 64)
+	if err != nil {
+		return 0, "", ErrBadCursor
+	}
+	return activityMillis, id.RoomID(idStr), nil
 }
 
 // GetChat retrieves a chat by its RoomID.
@@ -91,10 +134,11 @@ func (s *Store) GetChat(ctx context.Context, roomID id.RoomID) (*Chat, error) {
 	`, roomID)
 }
 
-// ListChats retrieves a page of chats ordered by last activity, newest first.
-// The cursor is the last_activity (unix seconds) of the last chat of the
-// previous page; an empty cursor starts from the newest chat. The returned
-// cursor is empty when there are no more chats.
+// ListChats retrieves a page of chats ordered by last activity, newest first,
+// with the chat id as a tiebreaker. Chats with no last activity sort last.
+// The cursor is an opaque string produced by a previous call; an empty cursor
+// starts from the newest chat. The returned cursor is empty when there are no
+// more chats.
 func (s *Store) ListChats(ctx context.Context, cursor string, limit int) ([]*Chat, string, error) {
 	var (
 		chats []*Chat
@@ -103,31 +147,32 @@ func (s *Store) ListChats(ctx context.Context, cursor string, limit int) ([]*Cha
 	if cursor == "" {
 		chats, err = s.chats.QueryMany(ctx, `
 			SELECT `+chatColumns+` FROM chat
-			ORDER BY last_activity DESC
+			ORDER BY COALESCE(last_activity, 0) DESC, id DESC
 			LIMIT $1
 		`, limit)
 	} else {
-		var before int64
-		before, err = strconv.ParseInt(cursor, 10, 64)
+		beforeActivity, beforeID, err := decodeChatCursor(cursor)
 		if err != nil {
 			return nil, "", err
 		}
 		chats, err = s.chats.QueryMany(ctx, `
 			SELECT `+chatColumns+` FROM chat
-			WHERE last_activity < $1
-			ORDER BY last_activity DESC
-			LIMIT $2
-		`, before, limit)
+			WHERE (COALESCE(last_activity, 0), id) < ($1, $2)
+			ORDER BY COALESCE(last_activity, 0) DESC, id DESC
+			LIMIT $3
+		`, beforeActivity, beforeID, limit)
+		if err != nil {
+			return nil, "", err
+		}
 	}
 	if err != nil {
 		return nil, "", err
 	}
 
 	var next string
-	if len(chats) == limit && len(chats) > 0 {
-		if last := chats[len(chats)-1]; !last.LastActivity.IsZero() {
-			next = strconv.FormatInt(last.LastActivity.Unix(), 10)
-		}
+	if len(chats) == limit {
+		last := chats[len(chats)-1]
+		next = encodeChatCursor(chatActivityMillis(last.LastActivity), last.ID)
 	}
 	return chats, next, nil
 }

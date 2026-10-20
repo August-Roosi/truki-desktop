@@ -11,19 +11,23 @@ CREATE TABLE IF NOT EXISTS chat (
     avatar_mxc TEXT,
     is_dm INTEGER NOT NULL DEFAULT 0,
     unread_count INTEGER NOT NULL DEFAULT 0,
-    muted_until INTEGER,
-    last_activity INTEGER,
+    muted_until INTEGER, -- unix milliseconds
+    last_activity INTEGER, -- unix milliseconds; NULL for no activity yet
     last_event_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS event (
-    id TEXT PRIMARY KEY,
+    -- Explicit INTEGER PRIMARY KEY: the rowid must be stable across VACUUM
+    -- for the external-content FTS table below (implicit rowids may be
+    -- renumbered), so it is the FTS content_rowid.
+    rowid_ INTEGER PRIMARY KEY,
+    id TEXT NOT NULL UNIQUE,
     room_id TEXT NOT NULL,
     sender TEXT NOT NULL,
     type TEXT NOT NULL,
     state_key TEXT,
     content TEXT NOT NULL,
-    timestamp INTEGER,
+    timestamp INTEGER, -- unix milliseconds
     stream_order INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT '',
     error_code TEXT,
@@ -44,26 +48,28 @@ CREATE TABLE IF NOT EXISTS member (
 CREATE VIRTUAL TABLE IF NOT EXISTS event_fts USING fts5(
     body,
     content='event',
-    content_rowid='rowid',
+    content_rowid='rowid_',
     tokenize="unicode61 remove_diacritics 2"
 );
 
 CREATE TRIGGER IF NOT EXISTS event_fts_insert AFTER INSERT ON event BEGIN
     INSERT INTO event_fts (rowid, body)
-    VALUES (new.rowid, json_extract(new.content, '$.body'));
+    VALUES (new.rowid_, json_extract(new.content, '$.body'));
 END;
 
 CREATE TRIGGER IF NOT EXISTS event_fts_delete AFTER DELETE ON event BEGIN
     INSERT INTO event_fts (event_fts, rowid, body)
-    VALUES ('delete', old.rowid, json_extract(old.content, '$.body'));
+    VALUES ('delete', old.rowid_, json_extract(old.content, '$.body'));
 END;
 
 CREATE TRIGGER IF NOT EXISTS event_fts_update AFTER UPDATE OF content ON event BEGIN
     INSERT INTO event_fts (event_fts, rowid, body)
-    VALUES ('delete', old.rowid, json_extract(old.content, '$.body'));
+    VALUES ('delete', old.rowid_, json_extract(old.content, '$.body'));
     INSERT INTO event_fts (rowid, body)
-    VALUES (new.rowid, json_extract(new.content, '$.body'));
+    VALUES (new.rowid_, json_extract(new.content, '$.body'));
 END;
 
-CREATE INDEX IF NOT EXISTS event_room_stream ON event (room_id, stream_order DESC);
+-- UNIQUE: stream_order is max+1 per room, computed inside the INSERT, so two
+-- concurrent writers can never claim the same order for a room.
+CREATE UNIQUE INDEX IF NOT EXISTS event_room_stream ON event (room_id, stream_order DESC);
 CREATE INDEX IF NOT EXISTS chat_last_activity ON chat (last_activity DESC);
