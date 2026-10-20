@@ -39,3 +39,8 @@ func redirectStdoutToStderr() error {
 	}
 	return windows.SetStdHandle(windows.STD_OUTPUT_HANDLE, stderr)
 }
+
+// writeFD1 has no fd-1 equivalent on Windows: the C runtime's fd 1 is not
+// addressable the way a unix fd is, and the guard's SetStdHandle path is
+// exercised through the os.Stdout redirect instead.
+func writeFD1(string) error { return nil }

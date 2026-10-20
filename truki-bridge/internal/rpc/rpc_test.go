@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 )
@@ -281,6 +282,98 @@ func TestInitFlow(t *testing.T) {
 	writeLine(t, in, `{"jsonrpc":"2.0","id":3,"method":"echo","params":{"text":"hi"}}`)
 	if n := echoResultLen(t, readResponse(t, out)); n != 2 {
 		t.Fatalf("echo len = %d, want 2", n)
+	}
+}
+
+// TestConcurrentDispatch checks that a slow handler does not block the
+// rest of the stream: the fast response must arrive while the slow
+// handler is still blocked, and the slow response follows once released.
+func TestConcurrentDispatch(t *testing.T) {
+	conn, out, in := newTestConn(t)
+	release := make(chan struct{})
+	conn.Handle("slow", func(ctx context.Context, params json.RawMessage) (any, error) {
+		<-release
+		return "slow", nil
+	})
+	conn.Handle("fast", func(ctx context.Context, params json.RawMessage) (any, error) {
+		return "fast", nil
+	})
+	conn.HandleInit(stubInit)
+	startServe(t, conn)
+
+	writeLine(t, in, initLine(1, ProtocolVersion))
+	readResponse(t, out)
+
+	writeLine(t, in, `{"jsonrpc":"2.0","id":1,"method":"slow"}`)
+	writeLine(t, in, `{"jsonrpc":"2.0","id":2,"method":"fast"}`)
+
+	responses := make(chan testResponse, 2)
+	go func() {
+		for {
+			line, err := out.ReadBytes('\n')
+			if err != nil {
+				close(responses)
+				return
+			}
+			var resp testResponse
+			if json.Unmarshal(line, &resp) != nil {
+				continue
+			}
+			responses <- resp
+		}
+	}()
+
+	select {
+	case resp, ok := <-responses:
+		if !ok {
+			t.Fatal("output closed before a response arrived")
+		}
+		if got := strings.TrimSpace(string(resp.ID)); got != "2" {
+			t.Fatalf("response id = %q, want 2 while the slow handler is blocked", got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the fast request was not answered while the slow handler was blocked")
+	}
+
+	close(release)
+
+	select {
+	case resp, ok := <-responses:
+		if !ok {
+			t.Fatal("output closed before the slow response arrived")
+		}
+		if got := strings.TrimSpace(string(resp.ID)); got != "1" {
+			t.Fatalf("response id = %q, want 1", got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the slow request was never answered after it was released")
+	}
+}
+
+// TestHandlerPanic checks that a panicking handler is answered with
+// INTERNAL and that the bridge keeps serving afterwards.
+func TestHandlerPanic(t *testing.T) {
+	conn, out, in := newTestConn(t)
+	conn.Handle("boom", func(ctx context.Context, params json.RawMessage) (any, error) {
+		panic("handler blew up")
+	})
+	conn.Handle("echo", echoHandler)
+	conn.HandleInit(stubInit)
+	startServe(t, conn)
+
+	writeLine(t, in, initLine(1, ProtocolVersion))
+	readResponse(t, out)
+
+	writeLine(t, in, `{"jsonrpc":"2.0","id":1,"method":"boom"}`)
+	resp := readResponse(t, out)
+	wantErrorCode(t, resp, -32000, "INTERNAL")
+	if resp.Error.Message != "internal error" {
+		t.Errorf("panic error message = %q, want %q", resp.Error.Message, "internal error")
+	}
+
+	writeLine(t, in, `{"jsonrpc":"2.0","id":2,"method":"echo","params":{"text":"still alive"}}`)
+	if n := echoResultLen(t, readResponse(t, out)); n != len("still alive") {
+		t.Fatalf("echo len = %d, want %d", n, len("still alive"))
 	}
 }
 

@@ -25,3 +25,11 @@ func dupStdout() (*os.File, error) {
 func redirectStdoutToStderr() error {
 	return syscall.Dup2(int(os.Stderr.Fd()), int(os.Stdout.Fd()))
 }
+
+// writeFD1 writes s straight to file descriptor 1, bypassing the os.Stdout
+// variable, so the stdout-guard test can prove fd 1 itself points at
+// stderr after the redirect.
+func writeFD1(s string) error {
+	_, err := syscall.Write(1, []byte(s))
+	return err
+}

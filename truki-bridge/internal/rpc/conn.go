@@ -55,6 +55,10 @@ type Conn struct {
 	// wmu serializes writes so every message is one intact line.
 	wmu sync.Mutex
 
+	// wg tracks in-flight handler goroutines; Serve waits for them
+	// before returning.
+	wg sync.WaitGroup
+
 	mu          sync.Mutex
 	handlers    map[string]Handler
 	initFn      func(ctx context.Context, p InitParams) (*InitResult, error)
@@ -102,8 +106,13 @@ func (c *Conn) Notify(method string, params any) {
 
 // Serve reads and dispatches newline-delimited JSON-RPC messages until EOF
 // or ctx is done. The context is checked between messages; a blocked read
-// ends when the peer closes the stream.
+// ends when the peer closes the stream. After a successful init each request
+// is dispatched in its own goroutine with a context derived from ctx: Serve
+// cancels that context and waits for in-flight handlers before returning.
 func (c *Conn) Serve(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer c.wg.Wait()
+	defer cancel()
 	for {
 		if err := ctx.Err(); err != nil {
 			return err

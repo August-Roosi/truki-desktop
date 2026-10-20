@@ -57,6 +57,16 @@ Result:
 }}
 ```
 
+## Concurrency
+
+After a successful `init` the bridge dispatches every request and
+notification to its own goroutine. A slow handler therefore does not delay
+other requests, and **responses may arrive in any order** — the supervisor
+must match them to their requests by `id`. The `init` handshake itself is
+synchronous: it is answered before any other method is dispatched. A
+handler that panics is answered with `INTERNAL` (message `internal error`),
+logged on stderr, and the bridge keeps serving.
+
 ## Notifications
 
 - Bridge → Truki: notifications carry `method` and `params` and have no
