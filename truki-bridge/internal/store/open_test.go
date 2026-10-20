@@ -6,6 +6,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -93,6 +94,18 @@ func TestFTS5Available(t *testing.T) {
 	}
 	defer db.RawDB.Close()
 	if _, err = db.Exec(context.Background(), "CREATE VIRTUAL TABLE t USING fts5(x)"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCheckCipherVersion(t *testing.T) {
+	if err := checkCipherVersion(sql.NullString{}, sql.ErrNoRows); !errors.Is(err, ErrNoSQLCipher) {
+		t.Fatalf("no row: %v", err)
+	}
+	if err := checkCipherVersion(sql.NullString{Valid: true}, nil); !errors.Is(err, ErrNoSQLCipher) {
+		t.Fatalf("empty: %v", err)
+	}
+	if err := checkCipherVersion(sql.NullString{String: "4.19.0", Valid: true}, nil); err != nil {
 		t.Fatal(err)
 	}
 }

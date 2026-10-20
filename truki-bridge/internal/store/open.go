@@ -20,6 +20,9 @@ import (
 // ErrBadKey is returned when the database exists but the key does not decrypt it.
 var ErrBadKey = errors.New("wrong database key or not a SQLCipher database")
 
+// ErrNoSQLCipher is returned when the linked SQLite is not SQLCipher.
+var ErrNoSQLCipher = errors.New("SQLCipher is not linked (plain SQLite would not encrypt the database)")
+
 const driverName = "truki-sqlcipher"
 
 var registerOnce sync.Once
@@ -82,6 +85,15 @@ func Open(path string, key []byte) (*dbutil.Database, error) {
 		raw.Close()
 		return nil, err
 	}
+	var ver sql.NullString
+	err = db.QueryRow(context.Background(), "PRAGMA cipher_version").Scan(&ver)
+	if cerr := checkCipherVersion(ver, err); cerr != nil {
+		raw.Close()
+		if isNotADB(cerr) {
+			return nil, ErrBadKey
+		}
+		return nil, cerr
+	}
 	var n int
 	if err = db.QueryRow(context.Background(), "SELECT count(*) FROM sqlite_master").Scan(&n); err != nil {
 		raw.Close()
@@ -91,4 +103,13 @@ func Open(path string, key []byte) (*dbutil.Database, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+// checkCipherVersion turns the result of PRAGMA cipher_version into an error
+// when SQLCipher is absent (no row, NULL or empty string).
+func checkCipherVersion(ver sql.NullString, err error) error {
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && (!ver.Valid || ver.String == "")) {
+		return ErrNoSQLCipher
+	}
+	return err
 }
