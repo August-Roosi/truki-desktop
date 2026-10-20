@@ -1,0 +1,426 @@
+// Copyright 2026 Truki
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package api
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/rs/zerolog"
+	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/status"
+	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
+
+	"github.com/August-Roosi/truki-desktop/truki-bridge/internal/faketest"
+	"github.com/August-Roosi/truki-desktop/truki-bridge/internal/host"
+	"github.com/August-Roosi/truki-desktop/truki-bridge/internal/rpc"
+	"github.com/August-Roosi/truki-desktop/truki-bridge/internal/store"
+	"github.com/August-Roosi/truki-desktop/truki-bridge/internal/trukiconnector"
+)
+
+// recordingSink records every message push, in order.
+type recordingSink struct {
+	mu       sync.Mutex
+	messages []store.Event
+}
+
+func (s *recordingSink) Message(ev *store.Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.messages = append(s.messages, *ev)
+}
+
+func (s *recordingSink) history(evID id.EventID) []store.Event {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []store.Event
+	for _, ev := range s.messages {
+		if ev.ID == evID {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+func (s *recordingSink) Chat(*store.Chat)                                {}
+func (s *recordingSink) AccountState(string, status.BridgeState)         {}
+func (s *recordingSink) Notify(string, *bridgev2.DirectNotificationData) {}
+func (s *recordingSink) Typing(id.RoomID, []id.UserID)                   {}
+func (s *recordingSink) Receipt(id.RoomID, id.UserID, id.EventID)        {}
+
+// env is a running bridge with a logged-in fake account and one chat (chat1)
+// holding the friend's message m1 ("tere"), served over a real RPC pipe.
+type env struct {
+	t     *testing.T
+	st    *store.Store
+	fake  *faketest.FakeNetwork
+	sink  *recordingSink
+	chat  id.RoomID
+	m1    id.EventID // event ID of the friend's message "tere"
+	resp  *bufio.Reader
+	req   io.Writer
+	reqID int
+}
+
+type rpcResponse struct {
+	Result json.RawMessage `json:"result"`
+	Error  *struct {
+		Data struct {
+			Code string `json:"code"`
+		} `json:"data"`
+	} `json:"error"`
+}
+
+var testKey = bytes.Repeat([]byte{7}, 32)
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func newEnv(t *testing.T) *env {
+	t.Helper()
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "bridge.db"), testKey)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	st := store.New(db)
+	if err := st.Upgrade(ctx); err != nil {
+		t.Fatalf("upgrade store: %v", err)
+	}
+	e := &env{t: t, st: st, fake: faketest.NewFakeNetwork(), sink: &recordingSink{}}
+	log := zerolog.New(zerolog.NewTestWriter(t)).Level(zerolog.WarnLevel)
+	h := host.NewHost(db, st, dir, e.sink, []host.NetworkDef{{
+		ID: "fake", Name: "Fake", Flows: []string{"fake"},
+		New: func() bridgev2.NetworkConnector { return e.fake },
+	}}, log)
+	if err := h.Start(ctx); err != nil {
+		t.Fatalf("start host: %v", err)
+	}
+	t.Cleanup(h.Stop)
+	br, err := h.Bridge(ctx, "fake")
+	if err != nil {
+		t.Fatalf("bridge: %v", err)
+	}
+	e.login(br, "alice")
+	e.fake.Deliver("alice", "chat1", "m1", "tere")
+	waitFor(t, "incoming message", func() bool {
+		chats, _, _ := st.ListChats(ctx, "", 10)
+		if len(chats) != 1 {
+			return false
+		}
+		e.chat = chats[0].ID
+		events, _ := st.ListEvents(ctx, e.chat, 0, 10)
+		for _, ev := range events {
+			if ev.Type == event.EventMessage.Type && strings.Contains(string(ev.Content), "tere") {
+				e.m1 = ev.ID
+			}
+		}
+		return e.m1 != ""
+	})
+
+	reqR, reqW := io.Pipe()
+	respR, respW := io.Pipe()
+	conn := rpc.NewConn(reqR, respW, zerolog.Nop())
+	conn.HandleInit(func(context.Context, rpc.InitParams) (*rpc.InitResult, error) {
+		return &rpc.InitResult{ProtocolVersion: rpc.ProtocolVersion}, nil
+	})
+	Register(conn, h, st)
+	serveCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { defer close(done); _ = conn.Serve(serveCtx) }()
+	t.Cleanup(func() {
+		reqW.Close()
+		cancel()
+		respR.Close()
+		<-done
+	})
+	e.req, e.resp = reqW, bufio.NewReader(respR)
+	if r := e.call("init", map[string]any{"protocolVersion": rpc.ProtocolVersion, "dataDir": dir, "dbKey": strings.Repeat("0", 64)}); r.Error != nil {
+		t.Fatalf("init failed: %+v", r.Error)
+	}
+	return e
+}
+
+func (e *env) login(br *bridgev2.Bridge, username string) {
+	e.t.Helper()
+	ctx := context.Background()
+	user, err := br.GetUserByMXID(ctx, trukiconnector.LocalUser)
+	if err != nil {
+		e.t.Fatalf("get local user: %v", err)
+	}
+	proc, err := br.Network.CreateLogin(ctx, user, "fake")
+	if err != nil {
+		e.t.Fatalf("create login: %v", err)
+	}
+	if _, err = proc.Start(ctx); err != nil {
+		e.t.Fatalf("login start: %v", err)
+	}
+	if _, err = proc.(bridgev2.LoginProcessUserInput).SubmitUserInput(ctx, map[string]string{"username": username}); err != nil {
+		e.t.Fatalf("login submit: %v", err)
+	}
+}
+
+// call sends one request and returns its response. Calls are sequential.
+func (e *env) call(method string, params any) rpcResponse {
+	e.t.Helper()
+	e.reqID++
+	line, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": e.reqID, "method": method, "params": params})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if _, err := e.req.Write(append(line, '\n')); err != nil {
+		e.t.Fatalf("write request: %v", err)
+	}
+	raw, err := e.resp.ReadBytes('\n')
+	if err != nil {
+		e.t.Fatalf("read response: %v", err)
+	}
+	var r rpcResponse
+	if err := json.Unmarshal(raw, &r); err != nil {
+		e.t.Fatalf("bad response %q: %v", raw, err)
+	}
+	return r
+}
+
+// ok calls method, requires success and returns the eventId of the result.
+func (e *env) ok(method string, params any) id.EventID {
+	e.t.Helper()
+	r := e.call(method, params)
+	if r.Error != nil {
+		e.t.Fatalf("%s failed: %+v", method, r.Error)
+	}
+	var out struct {
+		EventID id.EventID `json:"eventId"`
+	}
+	if err := json.Unmarshal(r.Result, &out); err != nil {
+		e.t.Fatalf("bad %s result %s: %v", method, r.Result, err)
+	}
+	return out.EventID
+}
+
+func (e *env) send(text string) id.EventID {
+	e.t.Helper()
+	return e.ok("messages.send", map[string]any{"chatId": e.chat, "text": text})
+}
+
+// finalStatus waits for the event's status to leave "pending" and returns
+// the last pushed row.
+func (e *env) finalStatus(evID id.EventID) store.Event {
+	e.t.Helper()
+	var last store.Event
+	waitFor(e.t, "final status of "+string(evID), func() bool {
+		h := e.sink.history(evID)
+		if len(h) == 0 || h[len(h)-1].Status == "pending" {
+			return false
+		}
+		last = h[len(h)-1]
+		return true
+	})
+	return last
+}
+
+func (e *env) wantError(r rpcResponse, code string) {
+	e.t.Helper()
+	if r.Error == nil || r.Error.Data.Code != code {
+		e.t.Fatalf("response = %+v / %s; want error %s", r.Error, r.Result, code)
+	}
+}
+
+func TestSendText(t *testing.T) {
+	e := newEnv(t)
+	evID := e.send("hello there")
+	if !strings.HasPrefix(string(evID), "$truki-") {
+		t.Errorf("eventId = %q; want a $truki- ID", evID)
+	}
+	if first := e.sink.history(evID); len(first) == 0 || first[0].Status != "pending" {
+		t.Errorf("first push of the outgoing event = %+v; want status pending", first)
+	}
+	got := e.finalStatus(evID)
+	if got.Status != "sent" || got.Sender != trukiconnector.LocalUser || got.RoomID != e.chat {
+		t.Errorf("final push = status %q sender %s room %s; want sent from the local user in %s", got.Status, got.Sender, got.RoomID, e.chat)
+	}
+	sent := e.fake.Sent()
+	if len(sent) != 1 || sent[0].Text != "hello there" || sent[0].Portal.ID != "chat1" {
+		t.Errorf("fake got %+v; want one message %q in chat1", sent, "hello there")
+	}
+	stored, _ := e.st.GetEvent(context.Background(), evID)
+	if stored == nil || stored.Status != "sent" {
+		t.Errorf("stored event = %+v; want status sent", stored)
+	}
+}
+
+func TestSendFailure(t *testing.T) {
+	e := newEnv(t)
+	e.fake.FailNextSend(errors.New("network down"))
+	evID := e.send("doomed")
+	got := e.finalStatus(evID)
+	if got.Status != "failed" || got.ErrorCode == "" {
+		t.Errorf("final push = status %q code %q; want failed with an error code", got.Status, got.ErrorCode)
+	}
+}
+
+func TestRateLimitedNotRetried(t *testing.T) {
+	e := newEnv(t)
+	e.fake.FailNextSend(faketest.ErrRateLimited)
+	evID := e.send("too fast")
+	got := e.finalStatus(evID)
+	if got.Status != "failed" || got.ErrorCode != "RATE_LIMITED" {
+		t.Errorf("final push = status %q code %q; want failed RATE_LIMITED", got.Status, got.ErrorCode)
+	}
+	// Events of a chat are handled in order, so once a later message is
+	// sent, any automatic retry of the first would already have happened.
+	e.finalStatus(e.send("sentinel"))
+	if n := e.fake.SendAttempts(); n != 2 {
+		t.Errorf("the network saw %d send attempts; want 2 (the rate-limited send once, then the sentinel)", n)
+	}
+}
+
+func TestSendInvalidAndUnknown(t *testing.T) {
+	e := newEnv(t)
+	e.wantError(e.call("messages.send", map[string]any{"chatId": "!nope:truki.local", "text": "x"}), "NOT_FOUND")
+	e.wantError(e.call("messages.send", map[string]any{"chatId": e.chat}), "INVALID_INPUT")
+	e.wantError(e.call("messages.send", map[string]any{"text": "x"}), "INVALID_INPUT")
+	e.wantError(e.call("messages.send", map[string]any{"chatId": e.chat, "text": "x", "bogus": 1}), "INVALID_INPUT")
+	e.wantError(e.call("messages.send", map[string]any{"chatId": e.chat, "text": "x", "replyTo": "$unknown"}), "NOT_FOUND")
+	e.wantError(e.call("messages.send", map[string]any{"chatId": e.chat, "attachments": []map[string]any{{"path": "/nonexistent/file.png", "name": "file.png"}}}), "INVALID_INPUT")
+	e.wantError(e.call("messages.react", map[string]any{"chatId": e.chat, "eventId": e.m1}), "INVALID_INPUT")
+	e.wantError(e.call("messages.react", map[string]any{"chatId": e.chat, "eventId": "$unknown", "key": "x"}), "NOT_FOUND")
+	e.wantError(e.call("messages.redact", map[string]any{"chatId": e.chat, "eventId": "$unknown"}), "NOT_FOUND")
+	e.wantError(e.call("chats.markRead", map[string]any{"chatId": "!nope:truki.local", "eventId": e.m1}), "NOT_FOUND")
+	e.wantError(e.call("chats.setMuted", map[string]any{"chatId": e.chat, "until": "tomorrow"}), "INVALID_INPUT")
+	e.wantError(e.call("chats.setMuted", map[string]any{"chatId": "!nope:truki.local"}), "NOT_FOUND")
+	if n := e.fake.SendAttempts(); n != 0 {
+		t.Errorf("the network saw %d sends for rejected requests; want 0", n)
+	}
+}
+
+func TestReply(t *testing.T) {
+	e := newEnv(t)
+	evID := e.ok("messages.send", map[string]any{"chatId": e.chat, "text": "answer", "replyTo": e.m1})
+	if got := e.finalStatus(evID); got.Status != "sent" {
+		t.Fatalf("reply status = %q; want sent", got.Status)
+	}
+	sent := e.fake.Sent()
+	if len(sent) != 1 || sent[0].ReplyTo != "m1" {
+		t.Errorf("fake got %+v; want one message replying to m1", sent)
+	}
+	stored, _ := e.st.GetEvent(context.Background(), evID)
+	if stored == nil || stored.RelatesTo != e.m1 {
+		t.Errorf("stored reply relates to %v; want %s", stored, e.m1)
+	}
+}
+
+func TestReactAndRedact(t *testing.T) {
+	e := newEnv(t)
+	reactID := e.ok("messages.react", map[string]any{"chatId": e.chat, "eventId": e.m1, "key": "👍"})
+	if got := e.finalStatus(reactID); got.Status != "sent" || got.Type != event.EventReaction.Type {
+		t.Fatalf("reaction push = %+v; want a sent m.reaction", got)
+	}
+	want := []faketest.FakeReaction{{Login: "alice", Message: "m1", Emoji: "👍"}}
+	if got := e.fake.Reactions(); !slices.Equal(got, want) {
+		t.Fatalf("fake reactions = %+v; want %+v", got, want)
+	}
+
+	// Redacting the reaction removes it.
+	e.ok("messages.redact", map[string]any{"chatId": e.chat, "eventId": reactID})
+	waitFor(t, "reaction removal", func() bool { return len(e.fake.Reactions()) == 2 })
+	want = append(want, faketest.FakeReaction{Login: "alice", Message: "m1", Emoji: "👍", Removed: true})
+	if got := e.fake.Reactions(); !slices.Equal(got, want) {
+		t.Errorf("fake reactions = %+v; want %+v", got, want)
+	}
+
+	// Redacting one of our own messages deletes it.
+	msgID := e.send("oops")
+	e.finalStatus(msgID)
+	e.ok("messages.redact", map[string]any{"chatId": e.chat, "eventId": msgID})
+	waitFor(t, "message removal", func() bool { return len(e.fake.Removals()) == 1 })
+	if got := e.fake.Removals()[0]; got.Message != "sent-1" {
+		t.Errorf("fake removed %+v; want sent-1", got)
+	}
+	waitFor(t, "message marked redacted", func() bool {
+		stored, _ := e.st.GetEvent(context.Background(), msgID)
+		return stored != nil && stored.Redacted
+	})
+}
+
+func TestMarkRead(t *testing.T) {
+	e := newEnv(t)
+	e.fake.Deliver("alice", "chat1", "m2", "tere jälle")
+	waitFor(t, "two unread messages", func() bool {
+		chat, _ := e.st.GetChat(context.Background(), e.chat)
+		return chat != nil && chat.UnreadCount == 2
+	})
+	chat, _ := e.st.GetChat(context.Background(), e.chat)
+	e.ok("chats.markRead", map[string]any{"chatId": e.chat, "eventId": chat.LastEventID})
+	chat, _ = e.st.GetChat(context.Background(), e.chat)
+	if chat.UnreadCount != 0 {
+		t.Errorf("unread count = %d after markRead; want 0", chat.UnreadCount)
+	}
+	waitFor(t, "read receipt at the network", func() bool { return len(e.fake.Receipts()) == 1 })
+	if got := e.fake.Receipts()[0]; got.Portal.ID != "chat1" || got.Message != "m2" || got.Login != "alice" {
+		t.Errorf("fake receipt = %+v; want alice's receipt for m2 in chat1", got)
+	}
+}
+
+func TestSetMuted(t *testing.T) {
+	e := newEnv(t)
+	until := time.Now().Add(time.Hour).Truncate(time.Second)
+	e.ok("chats.setMuted", map[string]any{"chatId": e.chat, "until": until.Format(time.RFC3339)})
+	chat, _ := e.st.GetChat(context.Background(), e.chat)
+	if !chat.MutedUntil.Equal(until) {
+		t.Errorf("muted until %v; want %v", chat.MutedUntil, until)
+	}
+	e.ok("chats.setMuted", map[string]any{"chatId": e.chat})
+	chat, _ = e.st.GetChat(context.Background(), e.chat)
+	if !chat.MutedUntil.IsZero() {
+		t.Errorf("muted until %v after unmuting; want zero", chat.MutedUntil)
+	}
+}
+
+func TestSendAttachment(t *testing.T) {
+	e := newEnv(t)
+	png := append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{1, 2, 3}, 100)...)
+	path := filepath.Join(t.TempDir(), "pic.png")
+	if err := os.WriteFile(path, png, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	evID := e.ok("messages.send", map[string]any{"chatId": e.chat, "attachments": []map[string]any{
+		{"path": path, "name": "pic.png", "mimeType": "image/png"},
+	}})
+	if got := e.finalStatus(evID); got.Status != "sent" {
+		t.Fatalf("attachment status = %q (%s); want sent", got.Status, got.ErrorCode)
+	}
+	sent := e.fake.Sent()
+	if len(sent) != 1 || !bytes.Equal(sent[0].File, png) || sent[0].FileName != "pic.png" || sent[0].MimeType != "image/png" {
+		t.Errorf("fake got %d messages (file %d bytes, name %q, type %q); want the PNG's %d bytes",
+			len(sent), len(sent[0].File), sent[0].FileName, sent[0].MimeType, len(png))
+	}
+	var content event.MessageEventContent
+	stored, _ := e.st.GetEvent(context.Background(), evID)
+	if err := json.Unmarshal(stored.Content, &content); err != nil || content.MsgType != event.MsgImage {
+		t.Errorf("stored content = %s; want an m.image", stored.Content)
+	}
+}

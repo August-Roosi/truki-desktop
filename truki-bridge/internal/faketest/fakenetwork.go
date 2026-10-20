@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"go.mau.fi/util/configupgrade"
+	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
@@ -42,7 +43,43 @@ type FakeSent struct {
 	Login  networkid.UserLoginID
 	Portal networkid.PortalKey
 	Text   string
+	// ReplyTo is the remote ID of the message replied to, if any.
+	ReplyTo networkid.MessageID
+	// File, FileName and MimeType describe an attachment; File is nil for
+	// a text message.
+	File     []byte
+	FileName string
+	MimeType string
 }
+
+// FakeReaction is one reaction the bridge added to or removed from a
+// message of the fake network.
+type FakeReaction struct {
+	Login   networkid.UserLoginID
+	Message networkid.MessageID
+	Emoji   string
+	Removed bool
+}
+
+// FakeReceipt is one read receipt the bridge sent to the fake network.
+type FakeReceipt struct {
+	Login  networkid.UserLoginID
+	Portal networkid.PortalKey
+	// Message is the remote ID of the message read up to ("" when the
+	// receipt names no bridged message).
+	Message networkid.MessageID
+}
+
+// FakeRemoval is one message deletion the bridge sent to the fake network.
+type FakeRemoval struct {
+	Login   networkid.UserLoginID
+	Message networkid.MessageID
+}
+
+// ErrRateLimited is the error a send fails with after FailNextSend: a
+// retriable status whose reason is the Matrix rate limit error.
+var ErrRateLimited = bridgev2.WrapErrorInStatus(errors.New("too many requests")).
+	WithErrorReason(event.MessageStatusReason(mautrix.MLimitExceeded.ErrCode))
 
 // FakeNetwork implements bridgev2.NetworkConnector. Its login processes and
 // per-login clients (fakeLogin, fakeClient) implement LoginProcess and
@@ -53,13 +90,23 @@ type FakeNetwork struct {
 	mu     sync.Mutex
 	br     *bridgev2.Bridge
 	starts int
-	sent   []FakeSent
+
+	sent      []FakeSent
+	attempts  int
+	failNext  error
+	reactions []FakeReaction
+	removals  []FakeRemoval
+	receipts  []FakeReceipt
 }
 
 var (
 	_ bridgev2.NetworkConnector      = (*FakeNetwork)(nil)
 	_ bridgev2.LoginProcessUserInput = (*fakeLogin)(nil)
 	_ bridgev2.NetworkAPI            = (*fakeClient)(nil)
+
+	_ bridgev2.ReactionHandlingNetworkAPI    = (*fakeClient)(nil)
+	_ bridgev2.RedactionHandlingNetworkAPI   = (*fakeClient)(nil)
+	_ bridgev2.ReadReceiptHandlingNetworkAPI = (*fakeClient)(nil)
 )
 
 // NewFakeNetwork returns a fake network connector.
@@ -162,6 +209,42 @@ func (f *FakeNetwork) Sent() []FakeSent {
 	return append([]FakeSent(nil), f.sent...)
 }
 
+// SendAttempts returns how many times the bridge handed the network a
+// message, whether or not it succeeded.
+func (f *FakeNetwork) SendAttempts() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.attempts
+}
+
+// FailNextSend makes the next message send fail with err, once.
+func (f *FakeNetwork) FailNextSend(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failNext = err
+}
+
+// Reactions returns the reactions added and removed, oldest first.
+func (f *FakeNetwork) Reactions() []FakeReaction {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]FakeReaction(nil), f.reactions...)
+}
+
+// Removals returns the message deletions, oldest first.
+func (f *FakeNetwork) Removals() []FakeRemoval {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]FakeRemoval(nil), f.removals...)
+}
+
+// Receipts returns the read receipts, oldest first.
+func (f *FakeNetwork) Receipts() []FakeReceipt {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]FakeReceipt(nil), f.receipts...)
+}
+
 // fakeLogin is the "fake" flow: one username field, then complete.
 type fakeLogin struct {
 	user *bridgev2.User
@@ -246,12 +329,45 @@ func (c *fakeClient) GetUserInfo(_ context.Context, ghost *bridgev2.Ghost) (*bri
 }
 
 func (c *fakeClient) GetCapabilities(context.Context, *bridgev2.Portal) *event.RoomFeatures {
-	return &event.RoomFeatures{ID: "truki.fake"}
+	return &event.RoomFeatures{
+		ID:       "truki.fake",
+		Reply:    event.CapLevelFullySupported,
+		Reaction: event.CapLevelFullySupported,
+		Delete:   event.CapLevelFullySupported,
+		File: event.FileFeatureMap{
+			event.MsgImage: {MimeTypes: map[string]event.CapabilitySupportLevel{"*/*": event.CapLevelFullySupported}},
+			event.MsgFile:  {MimeTypes: map[string]event.CapabilitySupportLevel{"*/*": event.CapLevelFullySupported}},
+		},
+		ReadReceipts: true,
+	}
 }
 
-func (c *fakeClient) HandleMatrixMessage(_ context.Context, msg *bridgev2.MatrixMessage) (*bridgev2.MatrixMessageResponse, error) {
+func (c *fakeClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMessage) (*bridgev2.MatrixMessageResponse, error) {
 	c.f.mu.Lock()
-	c.f.sent = append(c.f.sent, FakeSent{Login: c.login.ID, Portal: msg.Portal.PortalKey, Text: msg.Content.Body})
+	c.f.attempts++
+	if err := c.f.failNext; err != nil {
+		c.f.failNext = nil
+		c.f.mu.Unlock()
+		return nil, err
+	}
+	c.f.mu.Unlock()
+	sent := FakeSent{Login: c.login.ID, Portal: msg.Portal.PortalKey, Text: msg.Content.Body}
+	if msg.ReplyTo != nil {
+		sent.ReplyTo = msg.ReplyTo.ID
+	}
+	switch msg.Content.MsgType {
+	case event.MsgImage, event.MsgFile:
+		data, err := c.login.Bridge.Bot.DownloadMedia(ctx, msg.Content.URL, msg.Content.File)
+		if err != nil {
+			return nil, fmt.Errorf("failed to download attachment: %w", err)
+		}
+		sent.File, sent.FileName = data, msg.Content.GetFileName()
+		if msg.Content.Info != nil {
+			sent.MimeType = msg.Content.Info.MimeType
+		}
+	}
+	c.f.mu.Lock()
+	c.f.sent = append(c.f.sent, sent)
 	n := len(c.f.sent)
 	c.f.mu.Unlock()
 	return &bridgev2.MatrixMessageResponse{DB: &database.Message{
@@ -259,4 +375,48 @@ func (c *fakeClient) HandleMatrixMessage(_ context.Context, msg *bridgev2.Matrix
 		SenderID:  networkid.UserID(c.login.ID),
 		Timestamp: time.Now(),
 	}}, nil
+}
+
+func (c *fakeClient) PreHandleMatrixReaction(_ context.Context, msg *bridgev2.MatrixReaction) (bridgev2.MatrixReactionPreResponse, error) {
+	return bridgev2.MatrixReactionPreResponse{
+		SenderID: networkid.UserID(c.login.ID),
+		EmojiID:  networkid.EmojiID(msg.Content.RelatesTo.Key),
+		Emoji:    msg.Content.RelatesTo.Key,
+	}, nil
+}
+
+func (c *fakeClient) HandleMatrixReaction(_ context.Context, msg *bridgev2.MatrixReaction) (*database.Reaction, error) {
+	c.f.mu.Lock()
+	defer c.f.mu.Unlock()
+	c.f.reactions = append(c.f.reactions, FakeReaction{
+		Login: c.login.ID, Message: msg.TargetMessage.ID, Emoji: msg.PreHandleResp.Emoji,
+	})
+	return nil, nil
+}
+
+func (c *fakeClient) HandleMatrixReactionRemove(_ context.Context, msg *bridgev2.MatrixReactionRemove) error {
+	c.f.mu.Lock()
+	defer c.f.mu.Unlock()
+	c.f.reactions = append(c.f.reactions, FakeReaction{
+		Login: c.login.ID, Message: msg.TargetReaction.MessageID, Emoji: string(msg.TargetReaction.EmojiID), Removed: true,
+	})
+	return nil
+}
+
+func (c *fakeClient) HandleMatrixMessageRemove(_ context.Context, msg *bridgev2.MatrixMessageRemove) error {
+	c.f.mu.Lock()
+	defer c.f.mu.Unlock()
+	c.f.removals = append(c.f.removals, FakeRemoval{Login: c.login.ID, Message: msg.TargetMessage.ID})
+	return nil
+}
+
+func (c *fakeClient) HandleMatrixReadReceipt(_ context.Context, msg *bridgev2.MatrixReadReceipt) error {
+	r := FakeReceipt{Login: c.login.ID, Portal: msg.Portal.PortalKey}
+	if msg.ExactMessage != nil {
+		r.Message = msg.ExactMessage.ID
+	}
+	c.f.mu.Lock()
+	defer c.f.mu.Unlock()
+	c.f.receipts = append(c.f.receipts, r)
+	return nil
 }

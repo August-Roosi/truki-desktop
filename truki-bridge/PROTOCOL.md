@@ -2,8 +2,8 @@
 
 truki-bridge is spawned by Truki's Electron main process (the supervisor)
 and speaks JSON-RPC 2.0 with it over the child's stdin/stdout. This
-document describes the transport; RPC methods are added in later tasks as
-they land and will be documented here.
+document describes the transport and the RPC methods, which are added as
+they land.
 
 ## Framing
 
@@ -75,6 +75,69 @@ logged on stderr, and the bridge keeps serving.
   its method handler without a response. Errors while dispatching a
   notification are logged, not reported.
 
+## Methods
+
+`chatId` is a chat's Matrix room ID (`!<uuid>:truki.local`); `eventId` is a
+Matrix event ID. Params are strict: unknown fields, a missing `chatId` or a
+wrong type answer `INVALID_INPUT`. An unknown chat, or an `eventId` or
+`replyTo` that is not an event of that chat, answers `NOT_FOUND`.
+
+The methods below hand the request to the network and return as soon as it
+is queued. The outcome arrives later as `event.message` notifications for
+the outgoing event.
+
+### Outgoing events
+
+Every outgoing event is `$truki-<uuid>` and is stored (and pushed) at once
+with `status: "pending"`. When the network answers, the same event is pushed
+again with `status: "sent"`, or `status: "failed"` and an `errorCode`.
+`errorCode` is the network's error reason (for example
+`m.foreign_network_error`), except that a rate limit is `RATE_LIMITED`.
+**A `RATE_LIMITED` send is never retried by the bridge**; Truki surfaces it
+and the user retries, to keep the risk of a ban low.
+
+### `messages.send`
+
+Params: `{chatId, text?, html?, replyTo?, attachments?}`, where
+`attachments` is `[{path, name, mimeType?}]` (`path` is an absolute path to a
+local file; `mimeType` is detected from the content when absent). `text` or
+at least one attachment is required. `html` is the formatted version of
+`text`.
+
+Without attachments the result is one `m.text` event. With attachments each
+file is its own `m.image` (image MIME types) or `m.file` event, uploaded to
+the bridge's media store first; `text` becomes the caption of the first
+file, and `replyTo` applies to the first event. A file that cannot be read
+answers `INVALID_INPUT` before anything is sent.
+
+Result: `{eventId}`, the ID of the first event sent.
+
+### `messages.react`
+
+Params: `{chatId, eventId, key}`: `key` is the emoji. Result: `{eventId}`,
+the ID of the `m.reaction` event, which is pending until the network
+answers.
+
+### `messages.redact`
+
+Params: `{chatId, eventId}`. Deletes the message, or removes the reaction,
+that `eventId` names. Result: `{}`. The redaction is itself an outgoing
+`m.room.redaction` event with a status; when the network accepts it, the
+target is flagged `redacted` and pushed again.
+
+### `chats.markRead`
+
+Params: `{chatId, eventId}`. The chat's unread count becomes the number of
+other people's messages after `eventId` (so 0 for the newest), an
+`event.chat` is pushed, and a read receipt for `eventId` is sent to the
+network. Result: `{}`.
+
+### `chats.setMuted`
+
+Params: `{chatId, until?}`, where `until` is an RFC 3339 time; absent or
+`null` unmutes. Only the chat's `mutedUntil` changes (and an `event.chat` is
+pushed); the mute is not sent to the network. Result: `{}`.
+
 ## Errors
 
 Every error response carries the JSON-RPC code and, in `data.code`, the
@@ -104,7 +167,7 @@ Truki codes (`data.code`):
 |------------------|--------------------------------------------------|
 | `NOT_INITIALIZED`| method called before a successful `init`         |
 | `INVALID_INPUT`  | bad params, unknown method, oversize line        |
-| `NOT_FOUND`      | requested object does not exist                  |
+| `NOT_FOUND`      | requested chat or event does not exist           |
 | `INTERNAL`       | unexpected handler failure (also logged)         |
 
 Handler errors that are not `rpc.Error` values are reported as `INTERNAL`

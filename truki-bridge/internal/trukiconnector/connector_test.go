@@ -626,6 +626,11 @@ func TestBackfilledReactionDedup(t *testing.T) {
 	if c.GenerateReactionEventID(room, nil, "alice", "👍") == c.GenerateReactionEventID(room, nil, "alice", "👍") {
 		t.Fatalf("nil target should fall back to random IDs")
 	}
+	// One-reaction-per-user networks have no emoji ID: a changed reaction
+	// must not hash to the old reaction's event ID.
+	if c.GenerateReactionEventID(room, target, "alice", "") == c.GenerateReactionEventID(room, target, "alice", "") {
+		t.Fatalf("empty emoji ID should fall back to random IDs")
+	}
 
 	for range 2 {
 		_, err := c.BatchSend(ctx, room, &mautrix.ReqBeeperBatchSend{Forward: true, Events: []*event.Event{{

@@ -124,8 +124,15 @@ func (c *Connector) GenerateDeterministicEventID(roomID id.RoomID, key networkid
 
 // GenerateReactionEventID is deterministic so a replayed backfill does not
 // store a reaction twice. Without a target message it is random.
+//
+// It is also random without an emoji ID. Networks that allow one reaction
+// per user (WhatsApp) leave EmojiID empty and carry the emoji only in the
+// event content, which bridgev2's interface does not pass here, so a
+// deterministic ID would hash a changed reaction to the old reaction's ID
+// and the store would drop it as a duplicate. Only replay dedup of such
+// reactions is lost.
 func (c *Connector) GenerateReactionEventID(roomID id.RoomID, target *database.Message, sender networkid.UserID, emojiID networkid.EmojiID) id.EventID {
-	if target == nil {
+	if target == nil || emojiID == "" {
 		return newEventID()
 	}
 	return eventIDFromHash(hashParts("reaction", string(roomID), string(target.Room.ID), string(target.Room.Receiver),

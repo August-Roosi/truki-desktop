@@ -8,6 +8,7 @@ package trukiconnector
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"sync"
 
@@ -125,7 +126,7 @@ func (c *Connector) SendMessageStatus(ctx context.Context, ms *bridgev2.MessageS
 	}
 	errCode := ""
 	if ms.Status != event.MessageStatusSuccess && ms.Status != event.MessageStatusPending {
-		errCode = string(ms.ErrorReason)
+		errCode = errorCode(ms)
 	}
 	if err := c.store.SetEventStatus(ctx, info.SourceEventID, messageStatus(ms.Status), errCode); err != nil {
 		zerolog.Ctx(ctx).Err(err).Stringer("event_id", info.SourceEventID).Msg("Failed to store message status")
@@ -136,6 +137,15 @@ func (c *Connector) SendMessageStatus(ctx context.Context, ms *bridgev2.MessageS
 		zerolog.Ctx(ctx).Err(err).Stringer("event_id", info.SourceEventID).Msg("Failed to reload event after status update")
 	} else if ev != nil {
 		c.sink.Message(ev)
+		if ev.Type == event.EventRedaction.Type && ev.Sender == LocalUser && ms.Status == event.MessageStatusSuccess {
+			// The network accepted the local user's redaction: now hide the target.
+			var rel relationFields
+			if json.Unmarshal(ev.Content, &rel) == nil && rel.Redacts != "" {
+				if err := c.markRedacted(ctx, ev.RoomID, rel.Redacts); err != nil {
+					zerolog.Ctx(ctx).Err(err).Stringer("event_id", rel.Redacts).Msg("Failed to mark redacted event")
+				}
+			}
+		}
 	}
 }
 
