@@ -271,6 +271,55 @@ func TestListChatsOrderAndCursor(t *testing.T) {
 	}
 }
 
+func TestListChatsZeroLimit(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	err := s.Upgrade(ctx)
+	if err != nil {
+		t.Fatalf("upgrade failed: %v", err)
+	}
+
+	// Seed a chat so an accidental query would have something to return.
+	now := time.Now()
+	err = s.PutChat(ctx, &Chat{
+		ID:           id.RoomID("!zero:example.com"),
+		Network:      "whatsapp",
+		LoginID:      "login1",
+		PortalID:     "portal1",
+		Name:         "Zero limit chat",
+		LastActivity: now,
+	})
+	if err != nil {
+		t.Fatalf("failed to put chat: %v", err)
+	}
+
+	for _, limit := range []int{0, -1} {
+		chats, next, err := s.ListChats(ctx, "", limit)
+		if err != nil {
+			t.Fatalf("ListChats with limit=%d failed: %v", limit, err)
+		}
+		if len(chats) != 0 {
+			t.Fatalf("limit=%d: expected 0 chats, got %d", limit, len(chats))
+		}
+		if next != "" {
+			t.Fatalf("limit=%d: expected empty next cursor, got %s", limit, next)
+		}
+	}
+
+	// A zero limit with a cursor must behave the same, not panic or error.
+	chats, next, err := s.ListChats(ctx, encodeChatCursor(0, id.RoomID("!zero:example.com")), 0)
+	if err != nil {
+		t.Fatalf("ListChats with cursor and limit=0 failed: %v", err)
+	}
+	if len(chats) != 0 {
+		t.Fatalf("cursor + limit=0: expected 0 chats, got %d", len(chats))
+	}
+	if next != "" {
+		t.Fatalf("cursor + limit=0: expected empty next cursor, got %s", next)
+	}
+}
+
 func TestSearchFTS(t *testing.T) {
 	s := newTestDB(t)
 	ctx := context.Background()

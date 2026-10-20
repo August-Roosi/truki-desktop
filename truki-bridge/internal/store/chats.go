@@ -140,6 +140,12 @@ func (s *Store) GetChat(ctx context.Context, roomID id.RoomID) (*Chat, error) {
 // starts from the newest chat. The returned cursor is empty when there are no
 // more chats.
 func (s *Store) ListChats(ctx context.Context, cursor string, limit int) ([]*Chat, string, error) {
+	// A non-positive limit must not reach the query or the cursor code below:
+	// LIMIT <= 0 means "no rows" in SQLite, and a zero-length result would
+	// otherwise equal the limit and index chats[-1].
+	if limit <= 0 {
+		return nil, "", nil
+	}
 	var (
 		chats []*Chat
 		err   error
@@ -170,7 +176,7 @@ func (s *Store) ListChats(ctx context.Context, cursor string, limit int) ([]*Cha
 	}
 
 	var next string
-	if len(chats) == limit {
+	if len(chats) > 0 && len(chats) == limit {
 		last := chats[len(chats)-1]
 		next = encodeChatCursor(chatActivityMillis(last.LastActivity), last.ID)
 	}
