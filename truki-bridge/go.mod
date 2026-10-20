@@ -7,6 +7,7 @@ require (
 	github.com/rs/zerolog v1.35.1
 	go.mau.fi/util v0.11.0
 	golang.org/x/sys v0.49.0
+	gopkg.in/yaml.v3 v3.0.1
 	maunium.net/go/mautrix v0.32.0
 )
 
@@ -18,6 +19,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/petermattis/goid v0.0.0-20260918085751-abfca077860b // indirect
 	github.com/rs/xid v1.6.0 // indirect
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e // indirect
 	github.com/tidwall/gjson v1.20.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
@@ -29,5 +31,4 @@ require (
 	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

@@ -11,6 +11,7 @@ import (
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 
@@ -189,9 +190,17 @@ func (i *intent) SendMessage(ctx context.Context, room id.RoomID, evtType event.
 	if extra == nil {
 		extra = &bridgev2.MatrixSendExtra{}
 	}
-	evID := newEventID()
-	if extra.TransactionID != "" {
+	var evID id.EventID
+	switch meta := extra.MessageMeta; {
+	case extra.TransactionID != "":
 		evID = txnEventID(room, i.mxid, extra.TransactionID)
+	case meta != nil && meta.MXID == "":
+		// A new remote message part: bridgev2 saves its message row only
+		// after this returns, so a crash in between replays the message.
+		// The deterministic ID makes that replay a no-op in the store.
+		evID = i.c.GenerateDeterministicEventID(room, meta.Room, meta.ID, meta.PartID)
+	default:
+		evID = newEventID()
 	}
 	row, err := newRow(room, evID, i.mxid, evtType, nil, content, extra.Timestamp)
 	if err != nil {
@@ -389,10 +398,33 @@ func (i *intent) EnsureInvited(ctx context.Context, room id.RoomID, user id.User
 	return i.c.putMembership(ctx, room, user, event.MembershipInvite)
 }
 
+// portalLogin returns the lowest-sorting login in a portal that has no
+// receiver (not split per login). bridgev2 records the source login in the
+// portal (user_portal) before it creates the room, so this finds the login
+// whose event created the chat. It returns "" without a bridge (unit tests).
+func (c *Connector) portalLogin(ctx context.Context, key networkid.PortalKey) (string, error) {
+	if c.bridge == nil {
+		return "", nil
+	}
+	logins, err := c.bridge.GetUserLoginsInPortal(ctx, key)
+	if err != nil {
+		return "", fmt.Errorf("failed to get logins in portal %s: %w", key.ID, err)
+	}
+	best := ""
+	for _, ul := range logins {
+		if best == "" || string(ul.ID) < best {
+			best = string(ul.ID)
+		}
+	}
+	return best, nil
+}
+
 // CreateRoom inserts a chat row (spaces get none: they are not chats) and
 // the initial members, all joined because AutoJoinInvites is advertised.
 // The room ID is the request's BeeperLocalRoomID when set, so portals get
 // their deterministic ID; creating an existing room returns it unchanged.
+// LoginID is the bridge info's receiver, or for a portal without one the
+// login that is in the portal (see portalLogin).
 func (i *intent) CreateRoom(ctx context.Context, req *mautrix.ReqCreateRoom) (id.RoomID, error) {
 	room := req.BeeperLocalRoomID
 	if room == "" {
@@ -429,6 +461,13 @@ func (i *intent) CreateRoom(ctx context.Context, req *mautrix.ReqCreateRoom) (id
 				pl = v
 			}
 		}
+	}
+	if chat.LoginID == "" && chat.PortalID != "" {
+		login, err := i.c.portalLogin(ctx, networkid.PortalKey{ID: networkid.PortalID(chat.PortalID)})
+		if err != nil {
+			return "", err
+		}
+		chat.LoginID = login
 	}
 	i.c.setPowerLevels(room, pl)
 

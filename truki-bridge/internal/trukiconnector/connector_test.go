@@ -645,3 +645,50 @@ func TestBackfilledReactionDedup(t *testing.T) {
 		t.Fatalf("stored %d reaction rows; want 1", len(events))
 	}
 }
+
+// A remote message bridged live gets the deterministic event ID of its
+// message part, so a replay after a crash (bridgev2 had not yet saved its
+// message row) stores nothing new. Edits and redactions carry the existing
+// part (with its MXID) and keep getting fresh IDs.
+func TestLiveRemoteMessageDeterministicID(t *testing.T) {
+	c, st, _ := newTestConnector(t)
+	ctx := context.Background()
+	ghost := c.GhostIntent("alice")
+	room := createRoom(t, c, ghost)
+	key := networkid.PortalKey{ID: "chat-1"}
+	part := func() *bridgev2.MatrixSendExtra {
+		return &bridgev2.MatrixSendExtra{MessageMeta: &database.Message{ID: "msg-1", PartID: "p0", Room: key}}
+	}
+
+	r1, err := ghost.SendMessage(ctx, room, event.EventMessage, textContent("live"), part())
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	if want := c.GenerateDeterministicEventID(room, key, "msg-1", "p0"); r1.EventID != want {
+		t.Fatalf("event ID = %s; want deterministic %s", r1.EventID, want)
+	}
+	r2, err := ghost.SendMessage(ctx, room, event.EventMessage, textContent("live"), part())
+	if err != nil || r2.EventID != r1.EventID {
+		t.Fatalf("replay = %v, %v; want %s", r2, err, r1.EventID)
+	}
+
+	edit := part()
+	edit.MessageMeta.MXID = r1.EventID
+	r3, err := ghost.SendMessage(ctx, room, event.EventMessage, textContent("edited"), edit)
+	if err != nil || r3.EventID == r1.EventID {
+		t.Fatalf("edit = %v, %v; want a new event ID", r3, err)
+	}
+	events, err := st.ListEvents(ctx, room, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, ev := range events {
+		if ev.Type == event.EventMessage.Type {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Fatalf("stored %d messages; want 2 (original + edit)", n)
+	}
+}

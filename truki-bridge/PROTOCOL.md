@@ -109,3 +109,54 @@ Truki codes (`data.code`):
 
 Handler errors that are not `rpc.Error` values are reported as `INTERNAL`
 with the handler's error message and logged.
+
+## Implementation notes
+
+These record where bridgev2 (mautrix v0.32.0) assumes a Matrix homeserver,
+and how truki-bridge handles each one. They are bridge internals, not wire
+protocol.
+
+- **One database, many bridges.** Every network runs its own
+  `bridgev2.Bridge` with bridge ID = network ID, all on the one SQLCipher
+  database. bridgev2's tables carry a `bridge_id` column and its upgrades
+  use the `version` table; the store uses `truki_version`, so the two
+  coexist. `database.New` overwrites `UpgradeTable` on the handle it gets,
+  so each bridge gets its own `dbutil` child handle. Every bridge is
+  `ExternallyManagedDB`: the host runs bridgev2's upgrades once, and a
+  bridge's `Stop` does not close the shared database.
+- **`PostStart` runs synchronously.** `Bridge.Start` runs it in a
+  goroutine nothing waits for, which raced `Stop` and the database being
+  closed. The host calls `StartConnectors`, `StartLogins` and `PostStart`
+  itself, as mxmain does.
+- **Management room.** Bridge-state notices are posted to a management room
+  (a chat with the bridge bot), which would show up as a chat in Truki.
+  `bridge_status_notices` is `none`; account state reaches Truki through
+  `SendBridgeStatus` instead.
+- **Personal filtering spaces** are off: Truki has its own spaces. Space
+  rooms bridgev2 creates anyway get no chat row.
+- **Double puppeting needs no token.** bridgev2 asks for the local user's
+  double puppet with the stored (empty) access token; the Truki connector
+  returns its `@me:truki.local` intent for any token, so no double-puppet
+  login is needed. `@me:truki.local` has admin permissions and owns every
+  login.
+- **Event IDs of live remote messages are deterministic.** bridgev2 saves
+  its message row only after the Matrix send returns. A homeserver dedups a
+  replay by transaction ID; bridgev2 sends none for remote messages, so a
+  restart between the two writes stored the message twice. The connector
+  derives the event ID of a new message part (`MessageMeta` without MXID)
+  from the portal key, message ID and part ID, so the replay is a no-op.
+- **Chat login.** A portal without a receiver (not split per login) has no
+  login in its bridge info. bridgev2 records the source login in the portal
+  before creating the room, so `CreateRoom` takes the lowest-sorting login
+  in the portal. With several logins in one shared portal, the chat names
+  one of them.
+- **Direct media is off.** It is only enabled when the Matrix connector
+  calls `SetUseDirectMedia`, which the Truki connector never does, so
+  networks reupload media through the connector. Network config keys that
+  depend on it (e.g. WhatsApp's `direct_media_auto_request`) have no effect.
+- **Outgoing message re-ID is off** (`outgoing_message_re_id: false`), so an
+  outgoing message keeps the event ID it was stored under.
+- **Network config** is the connector's own example config, unmarshalled
+  into its config struct (lines with `$<<...>>` templates are dropped; the
+  WhatsApp, Meta, Signal and Telegram examples have none), then validated
+  when the connector supports it. There is no config file.
