@@ -109,19 +109,28 @@ func (h *Host) queue(ctx context.Context, br *bridgev2.Bridge, conn outgoingConn
 	}
 	bgCtx := br.Log.WithContext(context.WithoutCancel(ctx))
 	res := br.QueueMatrixEvent(bgCtx, evt)
-	if !res.Success {
-		// bridgev2 reports most failures through SendMessageStatus itself;
-		// make sure none is left pending.
-		cause := res.Error
-		if cause == nil {
-			cause = errors.New("the bridge did not handle the event")
-		}
-		if stored, err := h.st.GetEvent(ctx, evID); err == nil && stored != nil && stored.Status == "pending" {
-			ms := bridgev2.WrapErrorInStatus(cause).WithStatus(event.MessageStatusFail)
-			br.Matrix.SendMessageStatus(bgCtx, &ms, bridgev2.StatusEventInfoFromEvent(evt))
-		}
-	}
+	h.failIfStuck(ctx, br, evt, res)
 	return evID, nil
+}
+
+// failIfStuck makes sure an event the bridge did not act on is not left
+// pending. bridgev2 reports most failures through SendMessageStatus itself,
+// but an Ignored result (for example from a portal being deleted) carries no
+// status, so a still-pending event is failed here.
+func (h *Host) failIfStuck(ctx context.Context, br *bridgev2.Bridge, evt *event.Event, res bridgev2.EventHandlingResult) {
+	if res.Success && !res.Ignored {
+		return
+	}
+	cause := res.Error
+	if cause == nil {
+		cause = errors.New("the bridge did not handle the event")
+	}
+	stored, err := h.st.GetEvent(ctx, evt.ID)
+	if err != nil || stored == nil || stored.Status != "pending" {
+		return
+	}
+	ms := bridgev2.WrapErrorInStatus(cause).WithStatus(event.MessageStatusFail)
+	br.Matrix.SendMessageStatus(br.Log.WithContext(context.WithoutCancel(ctx)), &ms, bridgev2.StatusEventInfoFromEvent(evt))
 }
 
 func textContent(req SendRequest) *event.MessageEventContent {

@@ -424,3 +424,51 @@ func TestSendAttachment(t *testing.T) {
 		t.Errorf("stored content = %s; want an m.image", stored.Content)
 	}
 }
+
+func TestCommandLookalikesAreDelivered(t *testing.T) {
+	e := newEnv(t)
+	texts := []string{"!fake help", "!fake", "!fake logout", "!wait what", "!", "!fakeish"}
+	for _, text := range texts {
+		e.ok("messages.send", map[string]any{"chatId": e.chat, "text": text})
+	}
+	var evID id.EventID
+	for range texts {
+		evID = e.send("after")
+		e.finalStatus(evID)
+	}
+	sent := e.fake.Sent()
+	var got []string
+	for _, s := range sent {
+		got = append(got, s.Text)
+	}
+	if !slices.Equal(got[:len(texts)], texts) {
+		t.Fatalf("network got %q; want the texts verbatim %q", got, texts)
+	}
+	waitFor(t, "all sent", func() bool {
+		events, _ := e.st.ListEvents(context.Background(), e.chat, 0, 100)
+		n := 0
+		for _, ev := range events {
+			if ev.Sender == trukiconnector.LocalUser && ev.Status == "sent" {
+				n++
+			}
+		}
+		return n == len(texts)+len(texts)
+	})
+}
+
+func TestCaptionStartingWithBangIsDelivered(t *testing.T) {
+	e := newEnv(t)
+	path := filepath.Join(t.TempDir(), "a.bin")
+	if err := os.WriteFile(path, []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	evID := e.ok("messages.send", map[string]any{"chatId": e.chat, "text": "!fake logout", "attachments": []map[string]any{
+		{"path": path, "name": "a.bin", "mimeType": "application/octet-stream"},
+	}})
+	if got := e.finalStatus(evID); got.Status != "sent" {
+		t.Fatalf("status = %q; want sent", got.Status)
+	}
+	if sent := e.fake.Sent(); len(sent) != 1 || sent[0].Text != "!fake logout" || string(sent[0].File) != "data" {
+		t.Errorf("network got %+v; want the file with caption %q", sent, "!fake logout")
+	}
+}

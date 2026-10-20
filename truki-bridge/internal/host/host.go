@@ -7,6 +7,8 @@ package host
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -43,6 +45,10 @@ type Host struct {
 	defs     []NetworkDef
 	log      zerolog.Logger
 
+	// commandPrefix is random per process and starts with a control
+	// character, so no message text can start with it.
+	commandPrefix string
+
 	mu       sync.Mutex
 	upgraded bool
 	bridges  map[string]*bridgev2.Bridge
@@ -52,14 +58,17 @@ type Host struct {
 // (shared by the store and every bridge); the caller keeps ownership and
 // closes it after Stop.
 func NewHost(db *dbutil.Database, st *store.Store, dataDir string, sink trukiconnector.Sink, defs []NetworkDef, log zerolog.Logger) *Host {
+	var rnd [8]byte
+	_, _ = rand.Read(rnd[:])
 	return &Host{
-		db:       db,
-		st:       st,
-		mediaDir: filepath.Join(dataDir, "media"),
-		sink:     sink,
-		defs:     defs,
-		log:      log,
-		bridges:  make(map[string]*bridgev2.Bridge),
+		commandPrefix: "\x00truki-" + hex.EncodeToString(rnd[:]),
+		db:            db,
+		st:            st,
+		mediaDir:      filepath.Join(dataDir, "media"),
+		sink:          sink,
+		defs:          defs,
+		log:           log,
+		bridges:       make(map[string]*bridgev2.Bridge),
 	}
 }
 
@@ -142,7 +151,7 @@ func (h *Host) bridgeLocked(ctx context.Context, d NetworkDef) (*bridgev2.Bridge
 	log := h.log.With().Str("network", d.ID).Logger()
 	mx := trukiconnector.New(d.ID, h.st, h.mediaDir, h.sink)
 	br := bridgev2.NewBridge(networkid.BridgeID(d.ID), h.db.Child(bridgeVersionTable, nil, nil), log,
-		bridgeConfig(d.ID), mx, nc, commands.NewProcessor)
+		bridgeConfig(d.ID, h.commandPrefix), mx, nc, commands.NewProcessor)
 	br.ExternallyManagedDB = true
 	if err := startBridge(ctx, br); err != nil {
 		br.Stop()

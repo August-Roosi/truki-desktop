@@ -18,9 +18,12 @@ import (
 // bridgeConfig returns the bridgev2 config for one network. Values follow
 // mautrix's example config (bridgev2/matrix/mxmain/example-config.yaml)
 // except where Truki differs; each difference is commented.
-func bridgeConfig(network string) *bridgeconfig.BridgeConfig {
+func bridgeConfig(network, commandPrefix string) *bridgeconfig.BridgeConfig {
 	return &bridgeconfig.BridgeConfig{
-		CommandPrefix: "!" + network,
+		// bridgev2 runs any message starting with the prefix as a bridge
+		// command (logout, delete-portal...) and reports it as sent. Truki
+		// has no command UI, so the prefix is one no user text can carry.
+		CommandPrefix: commandPrefix,
 		// Spaces are a homeserver-client concept; Truki has its own.
 		PersonalFilteringSpaces: false,
 		PrivateChatPortalMeta:   true,

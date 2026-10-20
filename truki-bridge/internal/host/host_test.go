@@ -333,3 +333,40 @@ func TestStripTemplatedLines(t *testing.T) {
 func testLog(t *testing.T) zerolog.Logger {
 	return zerolog.New(zerolog.NewTestWriter(t)).Level(zerolog.WarnLevel)
 }
+
+// An Ignored result carries no status from bridgev2; the event must not stay
+// pending.
+func TestIgnoredResultFailsPendingEvent(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, st := openDB(t, filepath.Join(dir, "bridge.db"))
+	defer db.Close()
+	sink := &recordingSink{}
+	fake := faketest.NewFakeNetwork()
+	h := NewHost(db, st, dir, sink, fakeDefs(fake), testLog(t))
+	defer h.Stop()
+	br, err := h.Bridge(ctx, "fake")
+	if err != nil {
+		t.Fatal(err)
+	}
+	login(t, ctx, br, "alice")
+	fake.Deliver("alice", "chat1", "m1", "tere")
+	waitFor(t, "chat", func() bool { chats, _, _ := st.ListChats(ctx, "", 10); return len(chats) == 1 })
+	room := onlyChat(t, st).ID
+
+	conn := br.Matrix.(outgoingConnector)
+	evID := trukiconnector.NewOutgoingEventID()
+	content := &event.Content{Parsed: &event.MessageEventContent{MsgType: event.MsgText, Body: "x"}}
+	if _, err := conn.RecordOutgoing(ctx, room, evID, event.EventMessage, content, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	evt := &event.Event{ID: evID, RoomID: room, Type: event.EventMessage, Sender: trukiconnector.LocalUser}
+	h.failIfStuck(ctx, br, evt, bridgev2.EventHandlingResultQueued)
+	if ev, _ := st.GetEvent(ctx, evID); ev.Status != "pending" {
+		t.Fatalf("status after a queued result = %q; want pending", ev.Status)
+	}
+	h.failIfStuck(ctx, br, evt, bridgev2.EventHandlingResultIgnored)
+	if ev, _ := st.GetEvent(ctx, evID); ev.Status != "failed" || ev.ErrorCode == "" {
+		t.Fatalf("status after an ignored result = %q (%q); want failed with a code", ev.Status, ev.ErrorCode)
+	}
+}
