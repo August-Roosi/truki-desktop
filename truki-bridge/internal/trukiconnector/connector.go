@@ -228,8 +228,7 @@ func (c *Connector) pushChatUpdate(ctx context.Context, room id.RoomID, fn func(
 }
 
 // BatchSend stores backfilled events in one transaction and pushes one
-// event.chat when anything new was stored. Stream orders are assigned by the
-// store in batch order.
+// event.chat when anything new was stored.
 func (c *Connector) BatchSend(ctx context.Context, room id.RoomID, req *mautrix.ReqBeeperBatchSend, _ []*bridgev2.MatrixSendExtra) (*mautrix.RespBeeperBatchSend, error) {
 	resp := &mautrix.RespBeeperBatchSend{EventIDs: make([]id.EventID, len(req.Events))}
 	rows := make([]*store.Event, len(req.Events))
@@ -241,20 +240,7 @@ func (c *Connector) BatchSend(ctx context.Context, room id.RoomID, req *mautrix.
 		rows[idx] = row
 		resp.EventIDs[idx] = row.ID
 	}
-	var inserted []*store.Event
-	err := c.store.DB.DoTxn(ctx, nil, func(ctx context.Context) error {
-		inserted = inserted[:0]
-		for _, row := range rows {
-			ok, err := c.store.PutEvent(ctx, row)
-			if err != nil {
-				return err
-			}
-			if ok {
-				inserted = append(inserted, row)
-			}
-		}
-		return nil
-	})
+	inserted, err := c.storeBatch(ctx, room, req, rows)
 	if err != nil {
 		return nil, err
 	}
@@ -281,4 +267,46 @@ func (c *Connector) BatchSend(ctx context.Context, room id.RoomID, req *mautrix.
 		c.sink.Chat(chat)
 	}
 	return resp, nil
+}
+
+// storeBatch writes a batch and returns the rows that were new. bridgev2
+// sends batches oldest-first in both directions; a history batch
+// (Forward false, unless ForwardIfNoMessages applies to an empty room) goes
+// below the room's oldest event so the timeline stays in order.
+func (c *Connector) storeBatch(ctx context.Context, room id.RoomID, req *mautrix.ReqBeeperBatchSend, rows []*store.Event) ([]*store.Event, error) {
+	backward := !req.Forward
+	if backward && req.ForwardIfNoMessages {
+		existing, err := c.store.ListEvents(ctx, room, 0, 1)
+		if err != nil {
+			return nil, err
+		}
+		backward = len(existing) > 0
+	}
+	var inserted []*store.Event
+	if backward {
+		ok, err := c.store.PutEventsBefore(ctx, room, rows)
+		if err != nil {
+			return nil, err
+		}
+		for idx, row := range rows {
+			if ok[idx] {
+				inserted = append(inserted, row)
+			}
+		}
+		return inserted, nil
+	}
+	err := c.store.DB.DoTxn(ctx, nil, func(ctx context.Context) error {
+		inserted = inserted[:0]
+		for _, row := range rows {
+			ok, err := c.store.PutEvent(ctx, row)
+			if err != nil {
+				return err
+			}
+			if ok {
+				inserted = append(inserted, row)
+			}
+		}
+		return nil
+	})
+	return inserted, err
 }

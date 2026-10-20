@@ -122,8 +122,12 @@ func (c *Connector) GenerateDeterministicEventID(roomID id.RoomID, key networkid
 	return eventIDFromHash(hashParts(string(roomID), string(key.ID), string(key.Receiver), string(messageID), string(partID)))
 }
 
-// GenerateReactionEventID is random: like upstream, reactions need no
-// determinism.
-func (c *Connector) GenerateReactionEventID(id.RoomID, *database.Message, networkid.UserID, networkid.EmojiID) id.EventID {
-	return newEventID()
+// GenerateReactionEventID is deterministic so a replayed backfill does not
+// store a reaction twice. Without a target message it is random.
+func (c *Connector) GenerateReactionEventID(roomID id.RoomID, target *database.Message, sender networkid.UserID, emojiID networkid.EmojiID) id.EventID {
+	if target == nil {
+		return newEventID()
+	}
+	return eventIDFromHash(hashParts("reaction", string(roomID), string(target.Room.ID), string(target.Room.Receiver),
+		string(target.ID), string(target.PartID), string(sender), string(emojiID)))
 }

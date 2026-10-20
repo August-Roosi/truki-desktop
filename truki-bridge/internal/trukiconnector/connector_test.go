@@ -19,6 +19,7 @@ import (
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/status"
 	"maunium.net/go/mautrix/event"
@@ -532,5 +533,115 @@ func TestNoOpMethodsDoNotFail(t *testing.T) {
 	}
 	if c.ServerName() != ServerName {
 		t.Fatalf("ServerName = %q", c.ServerName())
+	}
+}
+
+func TestBackwardBackfillOrder(t *testing.T) {
+	c, st, _ := newTestConnector(t)
+	ctx := context.Background()
+	ghost := c.GhostIntent("alice")
+	room := createRoom(t, c, ghost)
+	key := networkid.PortalKey{ID: "chat-1"}
+	base := time.UnixMilli(1_700_000_000_000)
+
+	batch := func(req *mautrix.ReqBeeperBatchSend, names ...string) {
+		t.Helper()
+		for idx, name := range names {
+			req.Events = append(req.Events, &event.Event{
+				ID:        c.GenerateDeterministicEventID(room, key, networkid.MessageID(name), ""),
+				Sender:    ghost.GetMXID(),
+				Type:      event.EventMessage,
+				Timestamp: base.Add(time.Duration(idx) * time.Minute).UnixMilli(),
+				Content:   *textContent(name),
+			})
+		}
+		if _, err := c.BatchSend(ctx, room, req, nil); err != nil {
+			t.Fatalf("BatchSend: %v", err)
+		}
+	}
+	// Initial forward backfill into the empty room, as bridgev2 sends it.
+	batch(&mautrix.ReqBeeperBatchSend{ForwardIfNoMessages: true}, "forward1", "forward2", "forward3")
+
+	live, err := ghost.SendMessage(ctx, room, event.EventMessage, textContent("live"),
+		&bridgev2.MatrixSendExtra{Timestamp: base.Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	me, _, _ := c.NewUserIntent(ctx, LocalUser, "")
+	if err := me.MarkRead(ctx, room, live.EventID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	// History backfill: oldest-first, Forward false, room not empty.
+	base = base.Add(-24 * time.Hour)
+	batch(&mautrix.ReqBeeperBatchSend{ForwardIfNoMessages: true}, "back1", "back2")
+
+	events, err := st.ListEvents(ctx, room, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bodies []string
+	for _, ev := range events {
+		var b struct {
+			Body string `json:"body"`
+		}
+		_ = json.Unmarshal(ev.Content, &b)
+		bodies = append(bodies, b.Body)
+	}
+	want := []string{"live", "forward3", "forward2", "forward1", "back2", "back1"}
+	if !slices.Equal(bodies, want) {
+		t.Fatalf("timeline newest-first = %v; want %v", bodies, want)
+	}
+
+	chat, _ := st.GetChat(ctx, room)
+	if chat.UnreadCount != 0 || chat.LastEventID != live.EventID {
+		t.Fatalf("chat after backward batch = %+v; want unread 0, last event live", chat)
+	}
+	if err := me.MarkRead(ctx, room, live.EventID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if chat, _ = st.GetChat(ctx, room); chat.UnreadCount != 0 {
+		t.Fatalf("UnreadCount after re-reading live = %d; want 0", chat.UnreadCount)
+	}
+}
+
+func TestBackfilledReactionDedup(t *testing.T) {
+	c, st, _ := newTestConnector(t)
+	ctx := context.Background()
+	ghost := c.GhostIntent("alice")
+	room := createRoom(t, c, ghost)
+	target := &database.Message{
+		ID: "msg-1", PartID: "", MXID: "$target",
+		Room: networkid.PortalKey{ID: "chat-1", Receiver: "login-1"},
+	}
+	reactionID := func() id.EventID {
+		return c.GenerateReactionEventID(room, target, "alice", "👍")
+	}
+	if reactionID() != reactionID() {
+		t.Fatalf("reaction event IDs are not deterministic")
+	}
+	if c.GenerateReactionEventID(room, target, "bob", "👍") == reactionID() {
+		t.Fatalf("different senders produced the same reaction ID")
+	}
+	if c.GenerateReactionEventID(room, nil, "alice", "👍") == c.GenerateReactionEventID(room, nil, "alice", "👍") {
+		t.Fatalf("nil target should fall back to random IDs")
+	}
+
+	for range 2 {
+		_, err := c.BatchSend(ctx, room, &mautrix.ReqBeeperBatchSend{Forward: true, Events: []*event.Event{{
+			ID:     reactionID(),
+			Sender: ghost.GetMXID(),
+			Type:   event.EventReaction,
+			Content: event.Content{Parsed: &event.ReactionEventContent{RelatesTo: event.RelatesTo{
+				Type: event.RelAnnotation, EventID: target.MXID, Key: "👍",
+			}}},
+		}}}, nil)
+		if err != nil {
+			t.Fatalf("BatchSend: %v", err)
+		}
+	}
+	events, _ := st.ListEvents(ctx, room, 0, 10)
+	if len(events) != 1 {
+		t.Fatalf("stored %d reaction rows; want 1", len(events))
 	}
 }

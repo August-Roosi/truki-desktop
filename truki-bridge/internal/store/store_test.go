@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -783,8 +784,8 @@ func TestPutEventConcurrentStreamOrder(t *testing.T) {
 	if count != n || distinct != n {
 		t.Fatalf("expected %d events with %d distinct stream orders, got %d/%d", n, n, count, distinct)
 	}
-	if minOrder != 1 || maxOrder != n {
-		t.Fatalf("expected stream orders 1..%d, got min=%d max=%d", n, minOrder, maxOrder)
+	if int64(minOrder) != FirstStreamOrder || int64(maxOrder) != FirstStreamOrder+n-1 {
+		t.Fatalf("expected stream orders %d..%d, got min=%d max=%d", FirstStreamOrder, FirstStreamOrder+n-1, minOrder, maxOrder)
 	}
 }
 
@@ -895,5 +896,81 @@ func TestTimestampMillisecondPrecision(t *testing.T) {
 	}
 	if gotChat.MutedUntil.UnixMilli() != ts.Add(time.Hour).UnixMilli() {
 		t.Fatalf("chat muted_until lost millisecond precision: expected %d, got %d", ts.Add(time.Hour).UnixMilli(), gotChat.MutedUntil.UnixMilli())
+	}
+}
+
+func TestPutEventsBefore(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+	if err := s.Upgrade(ctx); err != nil {
+		t.Fatalf("upgrade failed: %v", err)
+	}
+	mk := func(room id.RoomID, name string) *Event {
+		return &Event{
+			ID: id.EventID(name), RoomID: room, Sender: "@user:example.com", Type: "m.room.message",
+			Content: json.RawMessage(`{"body":"` + name + `"}`), Timestamp: time.Now(),
+		}
+	}
+	order := func(room id.RoomID) []string {
+		t.Helper()
+		evs, err := s.ListEvents(ctx, room, 0, 100)
+		if err != nil {
+			t.Fatalf("ListEvents: %v", err)
+		}
+		var ids []string
+		for _, ev := range evs {
+			if ev.StreamOrder < 1 {
+				t.Fatalf("event %s has non-positive stream order %d", ev.ID, ev.StreamOrder)
+			}
+			ids = append(ids, string(ev.ID))
+		}
+		return ids
+	}
+
+	// Empty room: assigned forward from FirstStreamOrder.
+	empty := id.RoomID("!empty:example.com")
+	ins, err := s.PutEventsBefore(ctx, empty, []*Event{mk(empty, "e1"), mk(empty, "e2")})
+	if err != nil || !slices.Equal(ins, []bool{true, true}) {
+		t.Fatalf("PutEventsBefore(empty) = %v, %v", ins, err)
+	}
+	if got := order(empty); !slices.Equal(got, []string{"e2", "e1"}) {
+		t.Fatalf("empty room order = %v", got)
+	}
+	if ev, _ := s.GetEvent(ctx, "e1"); ev.StreamOrder != FirstStreamOrder {
+		t.Fatalf("e1 stream order = %d; want %d", ev.StreamOrder, FirstStreamOrder)
+	}
+
+	// Below existing events, chronological within the batch.
+	room := id.RoomID("!room:example.com")
+	for _, name := range []string{"live1", "live2"} {
+		if _, err := s.PutEvent(ctx, mk(room, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ins, err = s.PutEventsBefore(ctx, room, []*Event{mk(room, "old1"), mk(room, "old2"), mk(room, "old3")})
+	if err != nil || !slices.Equal(ins, []bool{true, true, true}) {
+		t.Fatalf("PutEventsBefore = %v, %v", ins, err)
+	}
+	if got := order(room); !slices.Equal(got, []string{"live2", "live1", "old3", "old2", "old1"}) {
+		t.Fatalf("order = %v", got)
+	}
+
+	// Existing IDs are skipped and keep their stream order; new ones go below.
+	before, _ := s.GetEvent(ctx, "old1")
+	ins, err = s.PutEventsBefore(ctx, room, []*Event{mk(room, "older1"), mk(room, "old1"), mk(room, "older2")})
+	if err != nil || !slices.Equal(ins, []bool{true, false, true}) {
+		t.Fatalf("PutEventsBefore(replay) = %v, %v", ins, err)
+	}
+	if after, _ := s.GetEvent(ctx, "old1"); after.StreamOrder != before.StreamOrder {
+		t.Fatalf("old1 stream order changed %d -> %d", before.StreamOrder, after.StreamOrder)
+	}
+	if got := order(room); !slices.Equal(got, []string{"live2", "live1", "old3", "old2", "old1", "older2", "older1"}) {
+		t.Fatalf("order after replay = %v", got)
+	}
+
+	// A full replay inserts nothing.
+	ins, err = s.PutEventsBefore(ctx, room, []*Event{mk(room, "older1"), mk(room, "older2")})
+	if err != nil || !slices.Equal(ins, []bool{false, false}) {
+		t.Fatalf("PutEventsBefore(full replay) = %v, %v", ins, err)
 	}
 }
