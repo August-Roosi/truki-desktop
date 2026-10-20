@@ -138,6 +138,86 @@ Params: `{chatId, until?}`, where `until` is an RFC 3339 time; absent or
 `null` unmutes. Only the chat's `mutedUntil` changes (and an `event.chat` is
 pushed); the mute is not sent to the network. Result: `{}`.
 
+## Login and accounts
+
+Logins mirror bridgev2's provisioning API, with the same step objects. A
+step is bridgev2's `LoginStep` as-is: `type` (`user_input`, `cookies`,
+`display_and_wait` or `complete`), `step_id`, `txn_id`, `instructions`, and
+one of `user_input`, `cookies`, `display_and_wait`, `complete` holding that
+type's parameters. Every account belongs to the local user.
+
+`network` is a network ID from `init`. An unknown network answers
+`NOT_FOUND`.
+
+### `login.flows`
+
+Params: `{network}`. Result: `[{id, name, description}]`, only the flows the
+network's definition allows; other flows the connector has are hidden.
+
+### `login.start`
+
+Params: `{network, flowId}`. Result: `{processId, step, seq}`. A `flowId`
+that is not in `login.flows` answers `INVALID_INPUT`.
+
+A network has at most one login process. **A second `login.start` for the
+same network cancels the first** (its `processId` then answers `NOT_FOUND`);
+the user may have closed the first dialog without cancelling it. Processes
+that are idle for 10 minutes (no start or submit) are cancelled the same way
+and an `event.login.step` with error `LOGIN_EXPIRED` is pushed.
+
+### `login.submit`
+
+Params: `{processId, stepId, input?, cookies?}`. `stepId` must be the
+current step's `step_id` (else `INVALID_INPUT`, and the process stays
+open). `input` (`{field: value}`) answers a `user_input` step and `cookies`
+(`{field: value}`) a `cookies` step; the other one must be absent. A
+`display_and_wait` or `complete` step cannot be submitted. Result:
+`{step, seq}`.
+
+When the step is `complete`, the account exists and `step.complete` names
+its `user_login_id`; the process is gone.
+
+If the network rejects the submission the call answers `LOGIN_FAILED` and
+the process is gone too (as in provisioning): start a new one. An unknown
+or finished `processId` answers `NOT_FOUND`.
+
+### `login.cancel`
+
+Params: `{processId}`. Result: `{}`. `NOT_FOUND` for an unknown process.
+
+### `event.login.step`
+
+Bridge to Truki. Sent while a process sits on a `display_and_wait` step: the
+bridge waits for the network, and pushes every following step (a refreshed
+QR code, the next question, `complete`) as `{processId, step, seq}`. If the
+wait fails (for example a QR code that nobody scanned), the push is
+`{processId, error: {code, message}}` and the process is gone: the user
+starts again with `login.start`. `code` is the network's error code
+(`LOGIN_FAILED` when it has none). No event follows cancelling a process.
+
+`seq` counts the steps of a process (1 for the first). A step can be
+reported both as a result and as an event, and an event can arrive before the
+result of the call that created the process or step. The client therefore
+keeps the step with the highest `seq` and buffers events whose `processId`
+it does not know yet.
+
+### `accounts.list`
+
+No params. Result: `[{loginId, network, remoteName, state}]` for every login
+of every network, `state` being the latest bridge state (`CONNECTED`,
+`TRANSIENT_DISCONNECT`, `BAD_CREDENTIALS`, ...; `UNKNOWN` before the first
+one). Changes arrive as `event.accountState`.
+
+### `accounts.logout`
+
+Params: `{loginId, network?}`. Logs the account out of the network, removes
+it, and reports `LOGGED_OUT` through `event.accountState`. Result: `{}`.
+`NOT_FOUND` for an unknown login. `network` is only required when the same
+`loginId` exists on several networks (else `INVALID_INPUT`).
+
+Login secrets (passwords, cookies, tokens) are only ever held in the
+`login.submit` call; the bridge does not log them.
+
 ## Errors
 
 Every error response carries the JSON-RPC code and, in `data.code`, the
@@ -167,7 +247,8 @@ Truki codes (`data.code`):
 |------------------|--------------------------------------------------|
 | `NOT_INITIALIZED`| method called before a successful `init`         |
 | `INVALID_INPUT`  | bad params, unknown method, oversize line        |
-| `NOT_FOUND`      | requested chat or event does not exist           |
+| `NOT_FOUND`      | requested chat, event, login or process does not exist |
+| `LOGIN_FAILED`   | the network rejected a login step; the process is gone |
 | `INTERNAL`       | unexpected handler failure (also logged)         |
 
 Handler errors that are not `rpc.Error` values are reported as `INTERNAL`

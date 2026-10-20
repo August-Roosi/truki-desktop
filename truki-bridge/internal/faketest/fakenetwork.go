@@ -27,6 +27,16 @@ import (
 // FlowID is the fake network's only login flow.
 const FlowID = "fake"
 
+// QRFlowID is a display_and_wait flow: it shows qr-0, refreshes to qr-1 and
+// qr-2, then completes with a login named QRUser.
+const QRFlowID = "fake-qr"
+
+// QRTimeoutFlowID is like QRFlowID but the first wait fails with a timeout.
+const QRTimeoutFlowID = "fake-qr-timeout"
+
+// QRUser is the remote name of the login the QR flow creates.
+const QRUser = "qr-user"
+
 // FriendID is the remote user every delivered message comes from.
 const FriendID networkid.UserID = "friend"
 
@@ -87,9 +97,10 @@ var ErrRateLimited = bridgev2.WrapErrorInStatus(errors.New("too many requests"))
 type FakeNetwork struct {
 	Config Config
 
-	mu     sync.Mutex
-	br     *bridgev2.Bridge
-	starts int
+	mu           sync.Mutex
+	br           *bridgev2.Bridge
+	starts       int
+	loginCancels int
 
 	sent      []FakeSent
 	attempts  int
@@ -166,14 +177,29 @@ func (f *FakeNetwork) LoadUserLogin(_ context.Context, login *bridgev2.UserLogin
 }
 
 func (f *FakeNetwork) GetLoginFlows() []bridgev2.LoginFlow {
-	return []bridgev2.LoginFlow{{Name: "Fake", Description: "Log in with any username", ID: FlowID}}
+	return []bridgev2.LoginFlow{
+		{Name: "Fake", Description: "Log in with any username", ID: FlowID},
+		{Name: "Fake QR", Description: "Log in by scanning a code", ID: QRFlowID},
+		{Name: "Fake QR (times out)", Description: "A code nobody scans", ID: QRTimeoutFlowID},
+	}
 }
 
 func (f *FakeNetwork) CreateLogin(_ context.Context, user *bridgev2.User, flowID string) (bridgev2.LoginProcess, error) {
-	if flowID != FlowID {
-		return nil, fmt.Errorf("unknown login flow %q", flowID)
+	switch flowID {
+	case FlowID:
+		return &fakeLogin{user: user}, nil
+	case QRFlowID, QRTimeoutFlowID:
+		return &fakeQRLogin{f: f, user: user, timeout: flowID == QRTimeoutFlowID}, nil
 	}
-	return &fakeLogin{user: user}, nil
+	return nil, fmt.Errorf("unknown login flow %q", flowID)
+}
+
+// LoginCancels returns how many display_and_wait login processes were
+// cancelled.
+func (f *FakeNetwork) LoginCancels() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.loginCancels
 }
 
 // Deliver makes the network report an incoming text message from FriendID
@@ -283,6 +309,63 @@ func (l *fakeLogin) SubmitUserInput(ctx context.Context, input map[string]string
 }
 
 func (l *fakeLogin) Cancel() {}
+
+// fakeQRLogin is the display_and_wait flow. Each Wait returns the next code
+// at once; after qr-2 the login completes. In the timeout variant the first
+// Wait fails instead.
+type fakeQRLogin struct {
+	user    *bridgev2.User
+	timeout bool
+	n       int
+	f       *FakeNetwork
+}
+
+var _ bridgev2.LoginProcessDisplayAndWait = (*fakeQRLogin)(nil)
+
+func (l *fakeQRLogin) qrStep() *bridgev2.LoginStep {
+	return &bridgev2.LoginStep{
+		Type:         bridgev2.LoginStepTypeDisplayAndWait,
+		StepID:       "truki.fake.qr",
+		Instructions: "Scan the code",
+		DisplayAndWaitParams: &bridgev2.LoginDisplayAndWaitParams{
+			Type: bridgev2.LoginDisplayTypeQR, Data: fmt.Sprintf("qr-%d", l.n),
+		},
+	}
+}
+
+func (l *fakeQRLogin) Start(context.Context) (*bridgev2.LoginStep, error) {
+	return l.qrStep(), nil
+}
+
+func (l *fakeQRLogin) Wait(ctx context.Context) (*bridgev2.LoginStep, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if l.timeout {
+		return nil, bridgev2.RespError{ErrCode: "FAKE_LOGIN_TIMEOUT", Err: "The code was not scanned in time"}
+	}
+	l.n++
+	if l.n <= 2 {
+		return l.qrStep(), nil
+	}
+	ul, err := l.user.NewLogin(ctx, &database.UserLogin{ID: networkid.UserLoginID(QRUser), RemoteName: QRUser}, nil)
+	if err != nil {
+		return nil, err
+	}
+	ul.Client.Connect(ul.Log.WithContext(context.Background()))
+	return &bridgev2.LoginStep{
+		Type:           bridgev2.LoginStepTypeComplete,
+		StepID:         "truki.fake.complete",
+		Instructions:   "Logged in as " + QRUser,
+		CompleteParams: &bridgev2.LoginCompleteParams{UserLoginID: ul.ID, UserLogin: ul},
+	}, nil
+}
+
+func (l *fakeQRLogin) Cancel() {
+	l.f.mu.Lock()
+	defer l.f.mu.Unlock()
+	l.f.loginCancels++
+}
 
 // fakeClient is the NetworkAPI of one login. The login's remote user ID
 // equals its login ID.

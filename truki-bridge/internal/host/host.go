@@ -42,6 +42,7 @@ type Host struct {
 	st       *store.Store
 	mediaDir string
 	sink     trukiconnector.Sink
+	states   *stateTracker
 	defs     []NetworkDef
 	log      zerolog.Logger
 
@@ -60,12 +61,14 @@ type Host struct {
 func NewHost(db *dbutil.Database, st *store.Store, dataDir string, sink trukiconnector.Sink, defs []NetworkDef, log zerolog.Logger) *Host {
 	var rnd [8]byte
 	_, _ = rand.Read(rnd[:])
+	states := &stateTracker{Sink: sink, last: make(map[stateKey]string)}
 	return &Host{
 		commandPrefix: "\x00truki-" + hex.EncodeToString(rnd[:]),
 		db:            db,
 		st:            st,
 		mediaDir:      filepath.Join(dataDir, "media"),
-		sink:          sink,
+		sink:          states,
+		states:        states,
 		defs:          defs,
 		log:           log,
 		bridges:       make(map[string]*bridgev2.Bridge),

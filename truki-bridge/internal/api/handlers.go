@@ -21,6 +21,7 @@ import (
 // Register installs the method handlers on conn. st is the store the host
 // was built with; the methods here reach it through h.
 func Register(conn *rpc.Conn, h *host.Host, _ *store.Store) {
+	registerLogin(conn, h)
 	conn.Handle("messages.send", func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var p struct {
 			ChatID      id.RoomID  `json:"chatId"`
