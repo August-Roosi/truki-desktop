@@ -1,0 +1,496 @@
+// Copyright 2026 Truki
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package store
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
+)
+
+func newTestDB(t *testing.T) *Store {
+	p := filepath.Join(t.TempDir(), "test.db")
+	db, err := Open(p, key(1))
+	if err != nil {
+		t.Fatalf("failed to open DB: %v", err)
+	}
+	return New(db)
+}
+
+func TestUpgradeIdempotent(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	// Run upgrade first time
+	err := s.Upgrade(ctx)
+	if err != nil {
+		t.Fatalf("first upgrade failed: %v", err)
+	}
+
+	// Run upgrade second time - should be idempotent
+	err = s.Upgrade(ctx)
+	if err != nil {
+		t.Fatalf("second upgrade failed: %v", err)
+	}
+
+	// Verify tables exist
+	tables := []string{"chat", "event", "member", "event_fts"}
+	for _, table := range tables {
+		exists, err := s.DB.TableExists(ctx, table)
+		if err != nil {
+			t.Fatalf("failed to check if table %s exists: %v", table, err)
+		}
+		if !exists {
+			t.Fatalf("table %s does not exist after upgrade", table)
+		}
+	}
+}
+
+func TestPutEventDedup(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	// Upgrade first
+	err := s.Upgrade(ctx)
+	if err != nil {
+		t.Fatalf("upgrade failed: %v", err)
+	}
+
+	evt := &Event{
+		ID:          id.EventID("test_event_1"),
+		RoomID:      id.RoomID("!room:example.com"),
+		Sender:      id.UserID("@user:example.com"),
+		Type:        "m.room.message",
+		Content:     json.RawMessage(`{"body":"test message","msgtype":"m.text"}`),
+		Timestamp:   time.Now(),
+		StreamOrder: 0, // Will be auto-assigned
+	}
+
+	// First insert should succeed
+	inserted, err := s.PutEvent(ctx, evt)
+	if err != nil {
+		t.Fatalf("first PutEvent failed: %v", err)
+	}
+	if !inserted {
+		t.Fatal("first PutEvent should have inserted")
+	}
+
+	// Second insert with same ID should not insert
+	inserted, err = s.PutEvent(ctx, evt)
+	if err != nil {
+		t.Fatalf("second PutEvent failed: %v", err)
+	}
+	if inserted {
+		t.Fatal("second PutEvent should not have inserted")
+	}
+
+	// Verify only one row exists
+	var count int
+	err = s.DB.QueryRow(ctx, "SELECT COUNT(*) FROM event WHERE id = $1", evt.ID).Scan(&count)
+	if err != nil {
+		t.Fatalf("failed to count events: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 event, got %d", count)
+	}
+}
+
+func TestListEventsPaging(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	err := s.Upgrade(ctx)
+	if err != nil {
+		t.Fatalf("upgrade failed: %v", err)
+	}
+
+	room := id.RoomID("!room:example.com")
+
+	// Insert 25 events with stream orders 1..25
+	for i := 1; i <= 25; i++ {
+		evt := &Event{
+			ID:          id.EventID(fmt.Sprintf("event_%d", i)),
+			RoomID:      room,
+			Sender:      id.UserID("@user:example.com"),
+			Type:        "m.room.message",
+			Content:     json.RawMessage(fmt.Sprintf(`{"body":"message %d","msgtype":"m.text"}`, i)),
+			Timestamp:   time.Now(),
+			StreamOrder: int64(i),
+		}
+		_, err = s.PutEvent(ctx, evt)
+		if err != nil {
+			t.Fatalf("failed to insert event %d: %v", i, err)
+		}
+	}
+
+	// ListEvents with before=0, limit=10 should return events 25..16
+	events, err := s.ListEvents(ctx, room, 0, 10)
+	if err != nil {
+		t.Fatalf("ListEvents failed: %v", err)
+	}
+	if len(events) != 10 {
+		t.Fatalf("expected 10 events, got %d", len(events))
+	}
+	// Check stream orders are 25, 24, ..., 16
+	for i, evt := range events {
+		expectedOrder := int64(25 - i)
+		if evt.StreamOrder != expectedOrder {
+			t.Fatalf("event %d: expected stream_order %d, got %d", i, expectedOrder, evt.StreamOrder)
+		}
+	}
+
+	// ListEvents with before=16, limit=10 should return events 15..6
+	events, err = s.ListEvents(ctx, room, 16, 10)
+	if err != nil {
+		t.Fatalf("ListEvents with before=16 failed: %v", err)
+	}
+	if len(events) != 10 {
+		t.Fatalf("expected 10 events, got %d", len(events))
+	}
+	// Check stream orders are 15, 14, ..., 6
+	for i, evt := range events {
+		expectedOrder := int64(15 - i)
+		if evt.StreamOrder != expectedOrder {
+			t.Fatalf("event %d: expected stream_order %d, got %d", i, expectedOrder, evt.StreamOrder)
+		}
+	}
+}
+
+func TestListChatsOrderAndCursor(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	err := s.Upgrade(ctx)
+	if err != nil {
+		t.Fatalf("upgrade failed: %v", err)
+	}
+
+	// Create 3 chats with different last_activity times
+	now := time.Now()
+	chat1 := &Chat{
+		ID:           id.RoomID("!chat1:example.com"),
+		Network:      "whatsapp",
+		LoginID:      "login1",
+		PortalID:     "portal1",
+		Name:         "Chat 1",
+		LastActivity: now.Add(-2 * time.Hour), // oldest
+	}
+	chat2 := &Chat{
+		ID:           id.RoomID("!chat2:example.com"),
+		Network:      "whatsapp",
+		LoginID:      "login1",
+		PortalID:     "portal2",
+		Name:         "Chat 2",
+		LastActivity: now.Add(-1 * time.Hour), // middle
+	}
+	chat3 := &Chat{
+		ID:           id.RoomID("!chat3:example.com"),
+		Network:      "whatsapp",
+		LoginID:      "login1",
+		PortalID:     "portal3",
+		Name:         "Chat 3",
+		LastActivity: now, // newest
+	}
+
+	for _, chat := range []*Chat{chat1, chat2, chat3} {
+		err = s.PutChat(ctx, chat)
+		if err != nil {
+			t.Fatalf("failed to put chat: %v", err)
+		}
+	}
+
+	// List all chats without cursor - should return newest first
+	chats, cursor, err := s.ListChats(ctx, "", 10)
+	if err != nil {
+		t.Fatalf("ListChats failed: %v", err)
+	}
+	if len(chats) != 3 {
+		t.Fatalf("expected 3 chats, got %d", len(chats))
+	}
+
+	// Check order: newest first
+	if chats[0].ID != chat3.ID {
+		t.Fatalf("expected first chat to be %s, got %s", chat3.ID, chats[0].ID)
+	}
+	if chats[1].ID != chat2.ID {
+		t.Fatalf("expected second chat to be %s, got %s", chat2.ID, chats[1].ID)
+	}
+	if chats[2].ID != chat1.ID {
+		t.Fatalf("expected third chat to be %s, got %s", chat1.ID, chats[2].ID)
+	}
+
+	// List with limit=2, should get cursor
+	chats, cursor, err = s.ListChats(ctx, "", 2)
+	if err != nil {
+		t.Fatalf("ListChats with limit=2 failed: %v", err)
+	}
+	if len(chats) != 2 {
+		t.Fatalf("expected 2 chats, got %d", len(chats))
+	}
+	if cursor == "" {
+		t.Fatal("expected non-empty cursor")
+	}
+
+	// List with cursor, should get remaining chat without overlap
+	chats, next, err := s.ListChats(ctx, cursor, 2)
+	if err != nil {
+		t.Fatalf("ListChats with cursor failed: %v", err)
+	}
+	if len(chats) != 1 {
+		t.Fatalf("expected 1 chat, got %d", len(chats))
+	}
+	if chats[0].ID != chat1.ID {
+		t.Fatalf("expected remaining chat to be %s, got %s", chat1.ID, chats[0].ID)
+	}
+	if next != "" {
+		t.Fatalf("expected empty cursor on last page, got %s", next)
+	}
+
+	// The second page must not repeat anything from the first page
+	page2, _, err := s.ListChats(ctx, cursor, 2)
+	if err != nil {
+		t.Fatalf("ListChats with cursor failed: %v", err)
+	}
+	seen := map[id.RoomID]bool{}
+	for _, c := range []*Chat{chat3, chat2} {
+		seen[c.ID] = true
+	}
+	for _, c := range page2 {
+		if seen[c.ID] {
+			t.Fatalf("chat %s appeared on both pages", c.ID)
+		}
+	}
+}
+
+func TestSearchFTS(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	err := s.Upgrade(ctx)
+	if err != nil {
+		t.Fatalf("upgrade failed: %v", err)
+	}
+
+	room := id.RoomID("!room:example.com")
+
+	// Insert event with Estonian text
+	evt1 := &Event{
+		ID:          id.EventID("evt_estonian"),
+		RoomID:      room,
+		Sender:      id.UserID("@user1:example.com"),
+		Type:        "m.room.message",
+		Content:     json.RawMessage(`{"body":"tere hommikust","msgtype":"m.text"}`),
+		Timestamp:   time.Now(),
+		StreamOrder: 1,
+		Redacted:    false,
+	}
+
+	// Insert event with English text
+	evt2 := &Event{
+		ID:          id.EventID("evt_english"),
+		RoomID:      room,
+		Sender:      id.UserID("@user2:example.com"),
+		Type:        "m.room.message",
+		Content:     json.RawMessage(`{"body":"good morning 🌅","msgtype":"m.text"}`),
+		Timestamp:   time.Now(),
+		StreamOrder: 2,
+		Redacted:    false,
+	}
+
+	for _, evt := range []*Event{evt1, evt2} {
+		_, err = s.PutEvent(ctx, evt)
+		if err != nil {
+			t.Fatalf("failed to insert event: %v", err)
+		}
+	}
+
+	// Search for Estonian word
+	results, err := s.Search(ctx, "hommikust", 10)
+	if err != nil {
+		t.Fatalf("search for hommikust failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result for hommikust, got %d", len(results))
+	}
+	if results[0].ID != evt1.ID {
+		t.Fatalf("expected result to be evt1, got %s", results[0].ID)
+	}
+
+	// Search for English word
+	results, err = s.Search(ctx, "morning", 10)
+	if err != nil {
+		t.Fatalf("search for morning failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result for morning, got %d", len(results))
+	}
+	if results[0].ID != evt2.ID {
+		t.Fatalf("expected result to be evt2, got %s", results[0].ID)
+	}
+
+	// Search with bad query - unbalanced quote
+	_, err = s.Search(ctx, `"unbalanced`, 10)
+	if err == nil {
+		t.Fatal("expected error for bad query, got nil")
+	}
+	if !errors.Is(err, ErrBadQuery) {
+		t.Fatalf("expected ErrBadQuery, got %v", err)
+	}
+}
+
+func TestRedactedEventLeavesFTS(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	err := s.Upgrade(ctx)
+	if err != nil {
+		t.Fatalf("upgrade failed: %v", err)
+	}
+
+	room := id.RoomID("!room:example.com")
+
+	// Insert event
+	evt := &Event{
+		ID:          id.EventID("evt_searchable"),
+		RoomID:      room,
+		Sender:      id.UserID("@user:example.com"),
+		Type:        "m.room.message",
+		Content:     json.RawMessage(`{"body":"find me","msgtype":"m.text"}`),
+		Timestamp:   time.Now(),
+		StreamOrder: 1,
+		Redacted:    false,
+	}
+
+	_, err = s.PutEvent(ctx, evt)
+	if err != nil {
+		t.Fatalf("failed to insert event: %v", err)
+	}
+
+	// Verify it's searchable
+	results, err := s.Search(ctx, "find", 10)
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result before redaction, got %d", len(results))
+	}
+
+	// Mark as redacted
+	_, err = s.DB.Exec(ctx, `
+		UPDATE event SET redacted = 1 WHERE id = $1
+	`, evt.ID)
+	if err != nil {
+		t.Fatalf("failed to update event: %v", err)
+	}
+
+	// Verify it's no longer searchable
+	results, err = s.Search(ctx, "find", 10)
+	if err != nil {
+		t.Fatalf("search after redaction failed: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("expected 0 results after redaction, got %d", len(results))
+	}
+}
+
+func TestPutMember(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	err := s.Upgrade(ctx)
+	if err != nil {
+		t.Fatalf("upgrade failed: %v", err)
+	}
+
+	room := id.RoomID("!room:example.com")
+	user := id.UserID("@user:example.com")
+
+	content := &event.MemberEventContent{
+		Membership:  event.MembershipJoin,
+		Displayname: "Test User",
+	}
+
+	// Put member
+	err = s.PutMember(ctx, room, user, content)
+	if err != nil {
+		t.Fatalf("PutMember failed: %v", err)
+	}
+
+	// Get member
+	got, err := s.GetMember(ctx, room, user)
+	if err != nil {
+		t.Fatalf("GetMember failed: %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetMember returned nil")
+	}
+	if got.Membership != event.MembershipJoin {
+		t.Fatalf("expected membership join, got %s", got.Membership)
+	}
+	if got.Displayname != "Test User" {
+		t.Fatalf("expected displayname 'Test User', got %s", got.Displayname)
+	}
+
+	// Get all members
+	members, err := s.GetMembers(ctx, room)
+	if err != nil {
+		t.Fatalf("GetMembers failed: %v", err)
+	}
+	if len(members) != 1 {
+		t.Fatalf("expected 1 member, got %d", len(members))
+	}
+	if _, exists := members[user]; !exists {
+		t.Fatal("expected user in members map")
+	}
+}
+
+func TestSetEventStatus(t *testing.T) {
+	s := newTestDB(t)
+	ctx := context.Background()
+
+	err := s.Upgrade(ctx)
+	if err != nil {
+		t.Fatalf("upgrade failed: %v", err)
+	}
+
+	room := id.RoomID("!room:example.com")
+	evt := &Event{
+		ID:          id.EventID("evt_status"),
+		RoomID:      room,
+		Sender:      id.UserID("@user:example.com"),
+		Type:        "m.room.message",
+		Content:     json.RawMessage(`{"body":"test","msgtype":"m.text"}`),
+		Timestamp:   time.Now(),
+		StreamOrder: 1,
+		Status:      "",
+		ErrorCode:   "",
+	}
+
+	_, err = s.PutEvent(ctx, evt)
+	if err != nil {
+		t.Fatalf("PutEvent failed: %v", err)
+	}
+
+	// Set status
+	err = s.SetEventStatus(ctx, evt.ID, "sent", "")
+	if err != nil {
+		t.Fatalf("SetEventStatus failed: %v", err)
+	}
+
+	// Verify status was set
+	got, err := s.GetEvent(ctx, evt.ID)
+	if err != nil {
+		t.Fatalf("GetEvent failed: %v", err)
+	}
+	if got.Status != "sent" {
+		t.Fatalf("expected status 'sent', got %s", got.Status)
+	}
+}
