@@ -44,8 +44,20 @@ Request:
 - `protocolVersion` (int): must be `1`, the current `ProtocolVersion`. Any
   other value is rejected with `INVALID_INPUT` without further processing;
   the supervisor maps that to `BRIDGE_INCOMPATIBLE`.
-- `dataDir` (string): directory for the bridge database.
-- `dbKey` (string): 64 hex chars, the raw SQLCipher key.
+- `dataDir` (string): directory for the bridge database; created (with its
+  `media/` subdirectory) when missing.
+- `dbKey` (string): 64 hex chars, the raw SQLCipher key. Anything else is
+  `INVALID_INPUT`.
+
+A `dbKey` that does not decrypt an existing database answers `INTERNAL`
+with a message containing `bad key`, and **the process then exits with
+status 1**: no retry can succeed, so the supervisor treats it as a crash
+(the key itself never appears in the error or the log). Any other failed
+`init` may be retried: the bridge creates the data directory, opens
+`<dataDir>/truki-bridge.db`, upgrades it, fails every event still
+`pending` from a previous run (a pending send cannot survive a restart),
+starts the bridges of the networks that have logins, and answers with the
+networks it serves.
 
 Result:
 
@@ -74,6 +86,28 @@ logged on stderr, and the bridge keeps serving.
 - Truki → bridge: a message without `id` is accepted and dispatched to
   its method handler without a response. Errors while dispatching a
   notification are logged, not reported.
+
+### Bridge events
+
+- `event.message`: params are one **event** object (see Reading). Pushed
+  for every stored or updated event, including the local user's outgoing
+  events changing status.
+- `event.chat`: params are one **chat** object. Pushed whenever a chat row
+  changes (name, avatar, unread count, mute, last message).
+- `event.accountState`: params are `{network, loginId, state}` with the
+  same `state` values as `accounts.list`. Pushed for every bridge state
+  change of a login.
+- `event.notify`: params are `{network, chatId?, senderName?, messageId,
+  message}` — a network notification (typically an incoming message for
+  a chat the user has not opened). `chatId` and `senderName` are present
+  when known.
+- `event.typing`: params are `{chatId, users: [userId, ...]}`, the users
+  currently typing in the chat (the full set, not a delta).
+- `event.receipt`: params are `{chatId, userId, eventId}` — a read
+  receipt.
+
+The `event.login.step` notification of the login flows is described with
+the login methods below.
 
 ## Methods
 
@@ -137,6 +171,70 @@ network. Result: `{}`.
 Params: `{chatId, until?}`, where `until` is an RFC 3339 time; absent or
 `null` unmutes. Only the chat's `mutedUntil` changes (and an `event.chat` is
 pushed); the mute is not sent to the network. Result: `{}`.
+
+## Reading
+
+The read-side methods return the store as it is now. Two objects recur:
+
+- A **chat**: `{id, network, loginId, name, topic, avatar?, isDm,
+  unreadCount, mutedUntil?, lastActivity?, lastEventId?}`, with the times
+  as RFC 3339 and `avatar` the `mxc://` content URI of the chat's avatar.
+- An **event**: `{id, chatId, sender, type, content, timestamp?,
+  streamOrder, status?, errorCode?, redacted?, relatesTo?, relType?}`,
+  where `content` is the Matrix event content as stored, `streamOrder`
+  is the event's absolute position in the chat (newest = highest), and
+  `status`/`errorCode` only exist for the local user's outgoing events.
+
+### `networks.list`
+
+No params. Result: `[{id, name, enabled}]`, every network the bridge
+serves, where `enabled` means the network has at least one logged-in
+account.
+
+### `chats.list`
+
+Params: `{cursor?, limit?}`, chats ordered by last activity, newest
+first. `limit` defaults to 50 and is clamped to 200. Result:
+`{chats: [chat, ...], nextCursor}`, where `nextCursor` is the opaque
+cursor of the next page, or `""`/absent when there are no more chats. A
+`cursor` that is not one of the bridge's answers `INVALID_INPUT`.
+
+### `chats.get`
+
+Params: `{chatId}`. Result: `{chat, members}`, `members` being
+`{userId: m.room.member content}` of the chat. `NOT_FOUND` for an unknown
+chat.
+
+### `messages.list`
+
+Params: `{chatId, before?, limit?}`. Result: `{events: [event, ...]}`,
+the chat's events newest first. `before` is a `streamOrder` from a
+previous page: only events below it are returned, which is how a client
+pages back through history. `limit` defaults to 50 and is clamped to 200.
+`NOT_FOUND` for an unknown chat.
+
+### `media.path`
+
+Params: `{mediaId}`, an `mxc://truki.local/<sha256 hex>` content URI as
+stored in event content. Result: `{path}`, the absolute path of the media
+file in `<dataDir>/media/`. Only such URIs resolve: anything that is not
+a parseable `mxc://` URI answers `INVALID_INPUT`; a parseable URI that is
+not local media (another server, a non-hash file ID) or whose file is
+missing answers `NOT_FOUND`. A media ID can never name a path outside the
+media directory.
+
+### `search`
+
+Params: `{query, limit?}`. Result: `[event, ...]`, matching events most
+relevant first, redacted events excluded. `query` is FTS5 syntax (a plain
+word works); a query that does not parse answers `INVALID_INPUT`.
+`limit` defaults to 20 and is clamped to 100.
+
+### `shutdown`
+
+No params. Result: `{}`. The bridge stops its bridges, closes the
+database and exits with status 0 right after the reply. It does not
+answer anything else afterwards.
 
 ## Login and accounts
 

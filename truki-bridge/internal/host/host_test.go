@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -368,5 +369,36 @@ func TestIgnoredResultFailsPendingEvent(t *testing.T) {
 	h.failIfStuck(ctx, br, evt, bridgev2.EventHandlingResultIgnored)
 	if ev, _ := st.GetEvent(ctx, evID); ev.Status != "failed" || ev.ErrorCode == "" {
 		t.Fatalf("status after an ignored result = %q (%q); want failed with a code", ev.Status, ev.ErrorCode)
+	}
+}
+
+// TestStoppedHost covers the stopped state: after Stop, Bridge and Start
+// answer an error and never construct or start anything.
+func TestStoppedHost(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, st := openDB(t, filepath.Join(dir, "bridge.db"))
+	defer db.Close()
+	fake := faketest.NewFakeNetwork()
+	h := NewHost(db, st, dir, &recordingSink{}, fakeDefs(fake), testLog(t))
+	if err := h.Start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	br, err := h.Bridge(ctx, "fake")
+	if err != nil {
+		t.Fatalf("bridge: %v", err)
+	}
+	login(t, ctx, br, "alice")
+	starts := fake.StartCount()
+
+	h.Stop()
+	if _, err := h.Bridge(ctx, "fake"); !errors.Is(err, ErrStopped) {
+		t.Errorf("Bridge after Stop = %v; want ErrStopped", err)
+	}
+	if err := h.Start(ctx); !errors.Is(err, ErrStopped) {
+		t.Errorf("Start after Stop = %v; want ErrStopped", err)
+	}
+	if got := fake.StartCount(); got != starts {
+		t.Errorf("the network started %d times after Stop; want %d", got, starts)
 	}
 }

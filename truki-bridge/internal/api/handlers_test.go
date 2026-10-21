@@ -7,8 +7,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -68,6 +71,7 @@ type env struct {
 	st    *store.Store
 	fake  *faketest.FakeNetwork
 	sink  *recordingSink
+	dir   string
 	chat  id.RoomID
 	m1    id.EventID // event ID of the friend's message "tere"
 	resp  *bufio.Reader
@@ -110,7 +114,7 @@ func newEnv(t *testing.T) *env {
 	if err := st.Upgrade(ctx); err != nil {
 		t.Fatalf("upgrade store: %v", err)
 	}
-	e := &env{t: t, st: st, fake: faketest.NewFakeNetwork(), sink: &recordingSink{}}
+	e := &env{t: t, st: st, fake: faketest.NewFakeNetwork(), sink: &recordingSink{}, dir: dir}
 	log := zerolog.New(zerolog.NewTestWriter(t)).Level(zerolog.WarnLevel)
 	h := host.NewHost(db, st, dir, e.sink, []host.NetworkDef{{
 		ID: "fake", Name: "Fake", Flows: []string{"fake"},
@@ -470,5 +474,305 @@ func TestCaptionStartingWithBangIsDelivered(t *testing.T) {
 	}
 	if sent := e.fake.Sent(); len(sent) != 1 || sent[0].Text != "!fake logout" || string(sent[0].File) != "data" {
 		t.Errorf("network got %+v; want the file with caption %q", sent, "!fake logout")
+	}
+}
+
+type listChatsResult struct {
+	Chats []struct {
+		ID          string `json:"id"`
+		Network     string `json:"network"`
+		Name        string `json:"name"`
+		UnreadCount int    `json:"unreadCount"`
+		IsDM        bool   `json:"isDm"`
+	} `json:"chats"`
+	NextCursor string `json:"nextCursor"`
+}
+
+func TestNetworksList(t *testing.T) {
+	e := newEnv(t)
+	r := e.call("networks.list", nil)
+	if r.Error != nil {
+		t.Fatalf("networks.list: %+v", r.Error)
+	}
+	var nets []struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := json.Unmarshal(r.Result, &nets); err != nil {
+		t.Fatalf("networks.list result %s: %v", r.Result, err)
+	}
+	if len(nets) != 1 || nets[0].ID != "fake" || nets[0].Name != "Fake" || !nets[0].Enabled {
+		t.Fatalf("networks.list = %+v; want one enabled fake network", nets)
+	}
+}
+
+func TestChatsListPaging(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	base := time.Now()
+	for i, name := range []string{"old", "mid", "new"} {
+		chat := &store.Chat{
+			ID:           id.RoomID("!" + name + ":truki.local"),
+			Network:      "fake",
+			LoginID:      "alice",
+			PortalID:     name,
+			Name:         name,
+			LastActivity: base.Add(time.Duration(i+1) * time.Hour),
+		}
+		if err := e.st.PutChat(ctx, chat); err != nil {
+			t.Fatalf("put chat %s: %v", name, err)
+		}
+	}
+
+	// Newest first: new, mid, then the fixture chat (whose activity is now).
+	var page listChatsResult
+	r := e.call("chats.list", map[string]any{"limit": 2})
+	if r.Error != nil {
+		t.Fatalf("chats.list: %+v", r.Error)
+	}
+	if err := json.Unmarshal(r.Result, &page); err != nil {
+		t.Fatalf("chats.list result %s: %v", r.Result, err)
+	}
+	if len(page.Chats) != 2 || page.Chats[0].ID != "!new:truki.local" || page.Chats[1].ID != "!mid:truki.local" {
+		t.Fatalf("first page = %+v; want new then mid", page.Chats)
+	}
+	if page.NextCursor == "" {
+		t.Fatal("nextCursor is empty with more chats to come")
+	}
+	if page.Chats[0].Network != "fake" || page.Chats[0].UnreadCount != 0 || page.Chats[0].IsDM {
+		t.Errorf("chat fields = %+v; want network fake, 0 unread, not a DM", page.Chats[0])
+	}
+
+	r = e.call("chats.list", map[string]any{"cursor": page.NextCursor, "limit": 2})
+	if r.Error != nil {
+		t.Fatalf("chats.list page 2: %+v", r.Error)
+	}
+	if err := json.Unmarshal(r.Result, &page); err != nil {
+		t.Fatalf("chats.list page 2 result %s: %v", r.Result, err)
+	}
+	if len(page.Chats) != 2 || page.Chats[0].ID != "!old:truki.local" || page.Chats[1].ID != string(e.chat) {
+		t.Fatalf("second page = %+v; want old then the fixture chat", page.Chats)
+	}
+
+	// A full last page still gets a cursor; the next page is empty.
+	r = e.call("chats.list", map[string]any{"cursor": page.NextCursor, "limit": 2})
+	if r.Error != nil {
+		t.Fatalf("chats.list page 3: %+v", r.Error)
+	}
+	if err := json.Unmarshal(r.Result, &page); err != nil {
+		t.Fatalf("chats.list page 3 result %s: %v", r.Result, err)
+	}
+	if len(page.Chats) != 0 || page.NextCursor != "" {
+		t.Fatalf("third page = %+v (cursor %q); want empty with no cursor", page.Chats, page.NextCursor)
+	}
+
+	// Default and clamped limits, and a bad cursor.
+	r = e.call("chats.list", nil)
+	if r.Error != nil {
+		t.Fatalf("chats.list without params: %+v", r.Error)
+	}
+	if err := json.Unmarshal(r.Result, &page); err != nil {
+		t.Fatalf("chats.list default result %s: %v", r.Result, err)
+	}
+	if len(page.Chats) != 4 || page.NextCursor != "" {
+		t.Fatalf("default page = %d chats, cursor %q; want all 4, no cursor", len(page.Chats), page.NextCursor)
+	}
+	r = e.call("chats.list", map[string]any{"limit": 10000})
+	if r.Error != nil {
+		t.Fatalf("chats.list with an oversized limit: %+v", r.Error)
+	}
+	e.wantError(e.call("chats.list", map[string]any{"cursor": "!!!not-base64!!!", "limit": 2}), "INVALID_INPUT")
+	e.wantError(e.call("chats.list", map[string]any{"limit": "many"}), "INVALID_INPUT")
+}
+
+func TestChatsGet(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	member := &event.MemberEventContent{Membership: event.MembershipJoin, Displayname: "Friend"}
+	if err := e.st.PutMember(ctx, e.chat, "@fake_friend:truki.local", member); err != nil {
+		t.Fatalf("put member: %v", err)
+	}
+	r := e.call("chats.get", map[string]any{"chatId": e.chat})
+	if r.Error != nil {
+		t.Fatalf("chats.get: %+v", r.Error)
+	}
+	var out struct {
+		Chat struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"chat"`
+		Members map[string]struct {
+			Membership  string `json:"membership"`
+			DisplayName string `json:"displayname"`
+		} `json:"members"`
+	}
+	if err := json.Unmarshal(r.Result, &out); err != nil {
+		t.Fatalf("chats.get result %s: %v", r.Result, err)
+	}
+	if out.Chat.ID != string(e.chat) {
+		t.Errorf("chat.id = %q; want %q", out.Chat.ID, e.chat)
+	}
+	if m, ok := out.Members["@fake_friend:truki.local"]; !ok || m.Membership != "join" || m.DisplayName != "Friend" {
+		t.Errorf("members = %+v; want the friend's join with display name Friend", out.Members)
+	}
+
+	e.wantError(e.call("chats.get", map[string]any{"chatId": "!nope:truki.local"}), "NOT_FOUND")
+	e.wantError(e.call("chats.get", map[string]any{}), "INVALID_INPUT")
+	e.wantError(e.call("chats.get", map[string]any{"chatId": e.chat, "bogus": 1}), "INVALID_INPUT")
+}
+
+type listEventsResult struct {
+	Events []struct {
+		ID          string          `json:"id"`
+		ChatID      string          `json:"chatId"`
+		Sender      string          `json:"sender"`
+		Type        string          `json:"type"`
+		Content     json.RawMessage `json:"content"`
+		Status      string          `json:"status"`
+		StreamOrder int64           `json:"streamOrder"`
+	} `json:"events"`
+}
+
+func TestMessagesListPaging(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	for i := 1; i <= 5; i++ {
+		content, err := json.Marshal(event.MessageEventContent{MsgType: event.MsgText, Body: fmt.Sprintf("page %d", i)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.st.PutEvent(ctx, &store.Event{
+			ID:        id.EventID(fmt.Sprintf("$page-%d:truki.local", i)),
+			RoomID:    e.chat,
+			Sender:    trukiconnector.LocalUser,
+			Type:      event.EventMessage.Type,
+			Content:   content,
+			Timestamp: time.Now(),
+		}); err != nil {
+			t.Fatalf("put event %d: %v", i, err)
+		}
+	}
+
+	// Newest first, three per page.
+	var page listEventsResult
+	r := e.call("messages.list", map[string]any{"chatId": e.chat, "limit": 3})
+	if r.Error != nil {
+		t.Fatalf("messages.list: %+v", r.Error)
+	}
+	if err := json.Unmarshal(r.Result, &page); err != nil {
+		t.Fatalf("messages.list result %s: %v", r.Result, err)
+	}
+	want := []string{"$page-5:truki.local", "$page-4:truki.local", "$page-3:truki.local"}
+	for i, ev := range page.Events {
+		if ev.ID != want[i] {
+			t.Fatalf("first page = %+v; want %q", page.Events, want)
+		}
+		if ev.ChatID != string(e.chat) || ev.Sender != string(trukiconnector.LocalUser) || ev.StreamOrder == 0 {
+			t.Errorf("event fields = %+v; want the chat, the local sender and a stream order", ev)
+		}
+	}
+
+	// before pages below the oldest event of the first page.
+	r = e.call("messages.list", map[string]any{"chatId": e.chat, "before": page.Events[2].StreamOrder, "limit": 3})
+	if r.Error != nil {
+		t.Fatalf("messages.list page 2: %+v", r.Error)
+	}
+	if err := json.Unmarshal(r.Result, &page); err != nil {
+		t.Fatalf("messages.list page 2 result %s: %v", r.Result, err)
+	}
+	want = []string{"$page-2:truki.local", "$page-1:truki.local", string(e.m1)}
+	for i, ev := range page.Events {
+		if ev.ID != want[i] {
+			t.Fatalf("second page = %+v; want %q", page.Events, want)
+		}
+	}
+
+	// An oversized limit is clamped, not an error.
+	r = e.call("messages.list", map[string]any{"chatId": e.chat, "limit": 10000})
+	if r.Error != nil {
+		t.Fatalf("messages.list with an oversized limit: %+v", r.Error)
+	}
+	if err := json.Unmarshal(r.Result, &page); err != nil {
+		t.Fatalf("messages.list result %s: %v", r.Result, err)
+	}
+	if len(page.Events) != 6 {
+		t.Fatalf("clamped page = %d events; want all 6", len(page.Events))
+	}
+
+	e.wantError(e.call("messages.list", map[string]any{"chatId": "!nope:truki.local"}), "NOT_FOUND")
+	e.wantError(e.call("messages.list", map[string]any{}), "INVALID_INPUT")
+	e.wantError(e.call("messages.list", map[string]any{"chatId": e.chat, "before": "soon"}), "INVALID_INPUT")
+}
+
+func TestMediaPathTraversal(t *testing.T) {
+	e := newEnv(t)
+	mediaDir := filepath.Join(e.dir, "media")
+
+	// Anything that is not an mxc URI cannot name a file at all.
+	for _, bad := range []string{"../../truki-bridge.key", "/etc/passwd", "mxc:/truki.local/x"} {
+		e.wantError(e.call("media.path", map[string]any{"mediaId": bad}), "INVALID_INPUT")
+	}
+	e.wantError(e.call("media.path", map[string]any{}), "INVALID_INPUT")
+
+	// A well-formed URI that names nothing in the media store.
+	for _, bad := range []string{"mxc://evil.example/x", "mxc://truki.local/../x"} {
+		e.wantError(e.call("media.path", map[string]any{"mediaId": bad}), "NOT_FOUND")
+	}
+
+	// A real upload resolves to its file inside <dataDir>/media.
+	data := []byte("truki media bytes")
+	sum := sha256.Sum256(data)
+	hash := hex.EncodeToString(sum[:])
+	if err := os.MkdirAll(mediaDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mediaDir, hash), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := e.call("media.path", map[string]any{"mediaId": "mxc://truki.local/" + hash})
+	if r.Error != nil {
+		t.Fatalf("media.path: %+v", r.Error)
+	}
+	var out struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(r.Result, &out); err != nil {
+		t.Fatalf("media.path result %s: %v", r.Result, err)
+	}
+	if want := filepath.Join(mediaDir, hash); out.Path != want {
+		t.Errorf("media.path = %q; want %q", out.Path, want)
+	}
+
+	// A local URI whose file was never uploaded.
+	e.wantError(e.call("media.path", map[string]any{"mediaId": "mxc://truki.local/" + strings.Repeat("ab", 32)}), "NOT_FOUND")
+}
+
+func TestSearchBadQuery(t *testing.T) {
+	e := newEnv(t)
+	e.wantError(e.call("search", map[string]any{"query": "\"unbalanced"}), "INVALID_INPUT")
+	e.wantError(e.call("search", map[string]any{}), "INVALID_INPUT")
+	e.wantError(e.call("search", map[string]any{"query": "tere", "bogus": 1}), "INVALID_INPUT")
+
+	// The fixture message is findable.
+	r := e.call("search", map[string]any{"query": "tere"})
+	if r.Error != nil {
+		t.Fatalf("search: %+v", r.Error)
+	}
+	var events []struct {
+		ID     string `json:"id"`
+		ChatID string `json:"chatId"`
+	}
+	if err := json.Unmarshal(r.Result, &events); err != nil {
+		t.Fatalf("search result %s: %v", r.Result, err)
+	}
+	found := false
+	for _, ev := range events {
+		if ev.ID == string(e.m1) && ev.ChatID == string(e.chat) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("search for tere = %+v; want the fixture message", events)
 	}
 }

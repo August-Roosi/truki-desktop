@@ -113,7 +113,7 @@ func encodeChatCursor(activityMillis int64, chatID id.RoomID) string {
 func decodeChatCursor(cursor string) (activityMillis int64, chatID id.RoomID, err error) {
 	raw, err := base64.URLEncoding.DecodeString(cursor)
 	if err != nil {
-		return 0, "", err
+		return 0, "", ErrBadCursor
 	}
 	activity, idStr, ok := strings.Cut(string(raw), cursorSeparator)
 	if !ok {

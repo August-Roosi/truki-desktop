@@ -29,19 +29,35 @@ const directMediaPrefix = "direct-"
 
 var mediaHashRegex = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-var errNotLocalMedia = errors.New("content URI is not Truki local media")
+var (
+	// ErrBadMediaURI means a media ID is not a parseable mxc:// URI.
+	ErrBadMediaURI = errors.New("not a parseable mxc URI")
+	// ErrNotLocalMedia means a content URI parses but names nothing in the
+	// local media store: a different homeserver, or a file ID that is not
+	// a sha256 hex digest.
+	ErrNotLocalMedia = errors.New("content URI is not Truki local media")
+)
 
 // mediaPath resolves an mxc://truki.local/<sha256 hex> URI to its file.
 // Anything else is rejected, so a URI can never name a path outside mediaDir.
 func (c *Connector) mediaPath(uri id.ContentURIString) (string, error) {
 	parsed, err := uri.Parse()
 	if err != nil {
-		return "", fmt.Errorf("failed to parse content URI: %w", err)
+		return "", fmt.Errorf("%w: %w", ErrBadMediaURI, err)
 	}
 	if parsed.Homeserver != ServerName || !mediaHashRegex.MatchString(parsed.FileID) {
-		return "", fmt.Errorf("%w: %q", errNotLocalMedia, uri)
+		return "", fmt.Errorf("%w: %q", ErrNotLocalMedia, uri)
 	}
 	return filepath.Join(c.mediaDir, parsed.FileID), nil
+}
+
+// MediaPath resolves uri to its file in mediaDir, applying the same
+// validation as the connector's own media handling: only
+// mxc://truki.local/<sha256 hex> URIs are accepted, so a URI can never
+// name a path outside mediaDir. ErrBadMediaURI means uri is not a
+// parseable mxc URI; ErrNotLocalMedia that it names no local media file.
+func MediaPath(mediaDir string, uri id.ContentURIString) (string, error) {
+	return (&Connector{mediaDir: mediaDir}).mediaPath(uri)
 }
 
 func mediaURI(sum []byte) id.ContentURIString {

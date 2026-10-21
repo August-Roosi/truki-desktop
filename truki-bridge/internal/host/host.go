@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -35,6 +36,10 @@ type NetworkDef struct {
 // dbutil default, distinct from the store's "truki_version".
 const bridgeVersionTable = "version"
 
+// ErrStopped is returned by Start and Bridge after Stop: a stopped host
+// constructs and starts nothing anymore.
+var ErrStopped = errors.New("the host is stopped")
+
 // Host owns the bridges. A network's bridge is constructed and started on
 // first use, or by Start when the network already has a login.
 type Host struct {
@@ -52,6 +57,7 @@ type Host struct {
 
 	mu       sync.Mutex
 	upgraded bool
+	stopped  bool
 	bridges  map[string]*bridgev2.Bridge
 }
 
@@ -110,6 +116,9 @@ func (h *Host) def(network string) (NetworkDef, bool) {
 func (h *Host) Start(ctx context.Context) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.stopped {
+		return ErrStopped
+	}
 	if err := h.upgradeLocked(ctx); err != nil {
 		return err
 	}
@@ -137,6 +146,9 @@ func (h *Host) Bridge(ctx context.Context, network string) (*bridgev2.Bridge, er
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.stopped {
+		return nil, ErrStopped
+	}
 	if err := h.upgradeLocked(ctx); err != nil {
 		return nil, err
 	}
@@ -179,10 +191,12 @@ func startBridge(ctx context.Context, br *bridgev2.Bridge) error {
 	return nil
 }
 
-// Stop stops every running bridge. It does not close the database.
+// Stop stops every running bridge and marks the host stopped: Start and
+// Bridge answer ErrStopped afterwards. It does not close the database.
 func (h *Host) Stop() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.stopped = true
 	for network, br := range h.bridges {
 		br.Stop()
 		delete(h.bridges, network)

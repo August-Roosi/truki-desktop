@@ -27,6 +27,9 @@ var (
 	ErrEventNotFound = errors.New("event not found in chat")
 	// ErrInvalidInput means a request is malformed.
 	ErrInvalidInput = errors.New("invalid input")
+	// ErrMediaNotFound means a media ID names no file of the local media
+	// store (wrong server, not a sha256 ID, or the file is missing).
+	ErrMediaNotFound = errors.New("media not found")
 )
 
 // Attachment is a local file to send.
@@ -303,4 +306,23 @@ func (h *Host) SetMuted(ctx context.Context, chatID id.RoomID, until time.Time) 
 		err = fmt.Errorf("%w: %s", ErrChatNotFound, chatID)
 	}
 	return err
+}
+
+// MediaPath resolves mediaID, an mxc://truki.local/<sha256 hex> content
+// URI, to its file in the media directory, reusing the connector's URI
+// validation. ErrInvalidInput means mediaID is not a parseable mxc URI;
+// ErrMediaNotFound that it names nothing in the local media store, or the
+// file is missing.
+func (h *Host) MediaPath(mediaID string) (string, error) {
+	path, err := trukiconnector.MediaPath(h.mediaDir, id.ContentURIString(mediaID))
+	if err != nil {
+		if errors.Is(err, trukiconnector.ErrBadMediaURI) {
+			return "", fmt.Errorf("%w: %v", ErrInvalidInput, err)
+		}
+		return "", fmt.Errorf("%w: %v", ErrMediaNotFound, err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		return "", fmt.Errorf("%w: %v", ErrMediaNotFound, err)
+	}
+	return path, nil
 }

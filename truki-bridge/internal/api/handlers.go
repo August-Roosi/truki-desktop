@@ -19,9 +19,11 @@ import (
 )
 
 // Register installs the method handlers on conn. st is the store the host
-// was built with; the methods here reach it through h.
-func Register(conn *rpc.Conn, h *host.Host, _ *store.Store) {
+// was built with; the read-side methods read it directly, the rest reach
+// it through h.
+func Register(conn *rpc.Conn, h *host.Host, st *store.Store) {
 	registerLogin(conn, h)
+	registerRead(conn, h, st)
 	conn.Handle("messages.send", func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var p struct {
 			ChatID      id.RoomID  `json:"chatId"`
@@ -127,10 +129,155 @@ func parse(raw json.RawMessage, dst any, chatID *id.RoomID) error {
 	return nil
 }
 
+// decodeParams decodes entirely optional params into dst, rejecting
+// unknown fields. Absent or null params leave dst untouched.
+func decodeParams(raw json.RawMessage, dst any) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		return rpc.Errf(rpc.CodeInvalidInput, "invalid params: %v", err)
+	}
+	return nil
+}
+
+// clampLimit bounds a list limit: n <= 0 means the default, values above
+// max are clamped (not an error).
+func clampLimit(n, def, max int) int {
+	if n <= 0 {
+		return def
+	}
+	if n > max {
+		return max
+	}
+	return n
+}
+
+// registerRead installs the read-side methods: networks.list, chats.list,
+// chats.get, messages.list, media.path and search.
+func registerRead(conn *rpc.Conn, h *host.Host, st *store.Store) {
+	conn.Handle("networks.list", func(_ context.Context, _ json.RawMessage) (any, error) {
+		defs := h.Defs()
+		out := make([]networkOut, 0, len(defs))
+		for _, d := range defs {
+			// A network whose bridge is not running has no logins.
+			_, running := h.RunningBridge(d.ID)
+			out = append(out, networkOut{ID: d.ID, Name: d.Name, Enabled: running})
+		}
+		return out, nil
+	})
+	conn.Handle("chats.list", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			Cursor string `json:"cursor"`
+			Limit  int    `json:"limit"`
+		}
+		if err := decodeParams(raw, &p); err != nil {
+			return nil, err
+		}
+		chats, next, err := st.ListChats(ctx, p.Cursor, clampLimit(p.Limit, 50, 200))
+		if err != nil {
+			if errors.Is(err, store.ErrBadCursor) {
+				return nil, rpc.Errf(rpc.CodeInvalidInput, "%v", err)
+			}
+			return nil, err
+		}
+		out := make([]chatOut, 0, len(chats))
+		for _, c := range chats {
+			out = append(out, newChatOut(c))
+		}
+		return map[string]any{"chats": out, "nextCursor": next}, nil
+	})
+	conn.Handle("chats.get", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			ChatID id.RoomID `json:"chatId"`
+		}
+		if err := parse(raw, &p, &p.ChatID); err != nil {
+			return nil, err
+		}
+		chat, err := st.GetChat(ctx, p.ChatID)
+		if err != nil {
+			return nil, err
+		}
+		if chat == nil {
+			return nil, rpc.Errf(rpc.CodeNotFound, "chat %s not found", p.ChatID)
+		}
+		members, err := st.GetMembers(ctx, p.ChatID)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"chat": newChatOut(chat), "members": members}, nil
+	})
+	conn.Handle("messages.list", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			ChatID id.RoomID `json:"chatId"`
+			Before *int64    `json:"before"`
+			Limit  int       `json:"limit"`
+		}
+		if err := parse(raw, &p, &p.ChatID); err != nil {
+			return nil, err
+		}
+		chat, err := st.GetChat(ctx, p.ChatID)
+		if err != nil {
+			return nil, err
+		}
+		if chat == nil {
+			return nil, rpc.Errf(rpc.CodeNotFound, "chat %s not found", p.ChatID)
+		}
+		var before int64
+		if p.Before != nil {
+			before = *p.Before
+		}
+		events, err := st.ListEvents(ctx, p.ChatID, before, clampLimit(p.Limit, 50, 200))
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"events": newEventOuts(events)}, nil
+	})
+	conn.Handle("media.path", func(_ context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			MediaID string `json:"mediaId"`
+		}
+		if err := strictParams(raw, &p); err != nil {
+			return nil, err
+		}
+		if p.MediaID == "" {
+			return nil, rpc.Errf(rpc.CodeInvalidInput, "mediaId is required")
+		}
+		path, err := h.MediaPath(p.MediaID)
+		if err != nil {
+			return nil, mapErr(err)
+		}
+		return map[string]any{"path": path}, nil
+	})
+	conn.Handle("search", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var p struct {
+			Query string `json:"query"`
+			Limit int    `json:"limit"`
+		}
+		if err := strictParams(raw, &p); err != nil {
+			return nil, err
+		}
+		if p.Query == "" {
+			return nil, rpc.Errf(rpc.CodeInvalidInput, "query is required")
+		}
+		events, err := st.Search(ctx, p.Query, clampLimit(p.Limit, 20, 100))
+		if err != nil {
+			if errors.Is(err, store.ErrBadQuery) {
+				return nil, rpc.Errf(rpc.CodeInvalidInput, "%v", err)
+			}
+			return nil, err
+		}
+		return newEventOuts(events), nil
+	})
+}
+
 // mapErr turns host errors into RPC errors.
 func mapErr(err error) error {
 	switch {
-	case errors.Is(err, host.ErrChatNotFound), errors.Is(err, host.ErrEventNotFound):
+	case errors.Is(err, host.ErrChatNotFound), errors.Is(err, host.ErrEventNotFound),
+		errors.Is(err, host.ErrMediaNotFound):
 		return rpc.Errf(rpc.CodeNotFound, "%v", err)
 	case errors.Is(err, host.ErrInvalidInput):
 		return rpc.Errf(rpc.CodeInvalidInput, "%v", err)
