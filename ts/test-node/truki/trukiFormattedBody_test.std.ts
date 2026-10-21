@@ -240,6 +240,37 @@ describe('trukiFormattedBody parser', () => {
     assert.equal(depthOf(nodes), 32);
     assert.equal(textOf(nodes), 'x');
   });
+
+  it('parses hostile 100 KB inputs in linear time', () => {
+    const assertAllowed = (nodes: ReadonlyArray<TrukiBodyNode>): void => {
+      for (const node of nodes) {
+        assert.include(
+          ['text', 'b', 'i', 's', 'code', 'pre', 'br', 'link'],
+          node.kind
+        );
+        if (node.kind !== 'text' && node.kind !== 'br') {
+          assertAllowed(node.children);
+        }
+      }
+    };
+    for (const input of [
+      '<a '.repeat(33333),
+      '<a href="x'.repeat(10000),
+      '&'.repeat(1_000_000),
+      '<'.repeat(100_000),
+      '<b>'.repeat(50_000),
+    ]) {
+      const start = performance.now();
+      const nodes = parseTrukiFormattedBody(input);
+      const elapsed = performance.now() - start;
+      assert.isBelow(
+        elapsed,
+        200,
+        `${input.slice(0, 12)}... (${input.length} chars) took ${elapsed}ms`
+      );
+      assertAllowed(nodes);
+    }
+  });
 });
 
 describe('trukiFormattedBody truncation', () => {

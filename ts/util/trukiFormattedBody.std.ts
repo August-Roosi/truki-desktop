@@ -14,6 +14,14 @@ export type TrukiBodyNode =
 
 const MAX_NESTING_DEPTH = 32;
 
+// Inputs longer than this are parsed only up to the cap; the renderer's own
+// truncation (truncateTrukiBody) still applies afterwards.
+const MAX_PARSED_LENGTH = 65536;
+
+// A `<` whose tag is not closed by a `>` within this many characters is
+// treated as text. Bounds the scan so hostile input stays linear-time.
+const MAX_TAG_LENGTH = 1024;
+
 const SAFE_HREF_PATTERN = /^(https?:|mailto:)/i;
 const HREF_JUNK_PATTERN = /[\p{Zs}\p{C}]/gu;
 
@@ -56,6 +64,17 @@ function isWhitespace(ch: string): boolean {
   return /\s/.test(ch);
 }
 
+/** Like `input.indexOf(needle, from)` but never looks at or past `end`. */
+function indexOfWithin(
+  input: string,
+  needle: string,
+  from: number,
+  end: number
+): number {
+  const offset = input.slice(from, end).indexOf(needle);
+  return offset === -1 ? -1 : from + offset;
+}
+
 /**
  * Tries to decode the HTML entity starting at `index` (which must point at `&`).
  * Recognises `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;`, `&#NNN;`, `&#xHH;`.
@@ -64,8 +83,10 @@ function matchEntity(
   input: string,
   index: number
 ): { value: string; next: number } | undefined {
-  const semicolon = input.indexOf(';', index + 1);
-  if (semicolon === -1 || semicolon - index > 12) {
+  // Entities are at most 12 characters long; searching further would make
+  // runs of `&` quadratic.
+  const semicolon = indexOfWithin(input, ';', index + 1, index + 13);
+  if (semicolon === -1) {
     return undefined;
   }
   const name = input.slice(index + 1, semicolon);
@@ -128,14 +149,18 @@ type OpenTag = Readonly<{
 /**
  * Parses the tag starting at `index` (which must point at `<` and be followed
  * by a letter). Only the `href` attribute of `a` tags is captured; every other
- * attribute is consumed and dropped. Returns undefined for malformed markup
- * (no closing `>` before the end of the input).
+ * attribute is consumed and dropped. `limit` is one past the last index the
+ * scan may read; returns undefined for malformed markup (no closing `>` or
+ * unmatched quote within the limit).
  */
-function parseOpenTag(input: string, index: number): OpenTag | undefined {
-  const len = input.length;
+function parseOpenTag(
+  input: string,
+  index: number,
+  limit: number
+): OpenTag | undefined {
   let pos = index + 1;
   let name = '';
-  while (pos < len && isTagNameChar(input.charAt(pos))) {
+  while (pos < limit && isTagNameChar(input.charAt(pos))) {
     name += input.charAt(pos);
     pos += 1;
   }
@@ -143,18 +168,18 @@ function parseOpenTag(input: string, index: number): OpenTag | undefined {
     return undefined;
   }
   let href: string | undefined;
-  while (pos < len) {
-    while (pos < len && isWhitespace(input.charAt(pos))) {
+  while (pos < limit) {
+    while (pos < limit && isWhitespace(input.charAt(pos))) {
       pos += 1;
     }
-    if (pos >= len) {
+    if (pos >= limit) {
       return undefined;
     }
     if (input.charAt(pos) === '>') {
       return { name, end: pos + 1, selfClosing: false, href };
     }
     if (input.charAt(pos) === '/') {
-      if (pos + 1 < len && input.charAt(pos + 1) === '>') {
+      if (pos + 1 < limit && input.charAt(pos + 1) === '>') {
         return { name, end: pos + 2, selfClosing: true, href };
       }
       pos += 1;
@@ -163,7 +188,7 @@ function parseOpenTag(input: string, index: number): OpenTag | undefined {
     // Attribute name.
     let attrName = '';
     while (
-      pos < len &&
+      pos < limit &&
       !isWhitespace(input.charAt(pos)) &&
       input.charAt(pos) !== '=' &&
       input.charAt(pos) !== '>' &&
@@ -173,20 +198,20 @@ function parseOpenTag(input: string, index: number): OpenTag | undefined {
       pos += 1;
     }
     let attrValue: string | undefined;
-    while (pos < len && isWhitespace(input.charAt(pos))) {
+    while (pos < limit && isWhitespace(input.charAt(pos))) {
       pos += 1;
     }
-    if (pos < len && input.charAt(pos) === '=') {
+    if (pos < limit && input.charAt(pos) === '=') {
       pos += 1;
-      while (pos < len && isWhitespace(input.charAt(pos))) {
+      while (pos < limit && isWhitespace(input.charAt(pos))) {
         pos += 1;
       }
-      if (pos >= len) {
+      if (pos >= limit) {
         return undefined;
       }
       const quote = input.charAt(pos);
       if (quote === '"' || quote === "'") {
-        const closing = input.indexOf(quote, pos + 1);
+        const closing = indexOfWithin(input, quote, pos + 1, limit);
         if (closing === -1) {
           return undefined;
         }
@@ -195,7 +220,7 @@ function parseOpenTag(input: string, index: number): OpenTag | undefined {
       } else {
         let value = '';
         while (
-          pos < len &&
+          pos < limit &&
           !isWhitespace(input.charAt(pos)) &&
           input.charAt(pos) !== '>'
         ) {
@@ -203,7 +228,7 @@ function parseOpenTag(input: string, index: number): OpenTag | undefined {
           pos += 1;
         }
         // Keep a trailing `/` available so `href=x/>` self-closes.
-        if (value.endsWith('/') && pos < len && input.charAt(pos) === '>') {
+        if (value.endsWith('/') && pos < limit && input.charAt(pos) === '>') {
           value = value.slice(0, -1);
           pos -= 1;
         }
@@ -309,8 +334,12 @@ export function parseTrukiFormattedBody(
     });
   };
 
-  const len = formattedBody.length;
+  const len = Math.min(formattedBody.length, MAX_PARSED_LENGTH);
   let pos = 0;
+  // Set once a bounded scan has covered the whole remainder of the input
+  // without finding a `>`: no later `<` can start a tag, so they become text
+  // without rescanning.
+  let reachedEofWithoutClose = false;
   while (pos < len) {
     const ch = formattedBody.charAt(pos);
     if (ch === '<') {
@@ -351,7 +380,24 @@ export function parseTrukiFormattedBody(
         continue;
       }
       if (pos + 1 < len && isTagNameStart(formattedBody.charAt(pos + 1))) {
-        const tag = parseOpenTag(formattedBody, pos);
+        if (reachedEofWithoutClose) {
+          // No `>` remains in the input; this `<` cannot start a tag.
+          textBuffer += '<';
+          pos += 1;
+          continue;
+        }
+        const scanEnd = Math.min(len, pos + 1 + MAX_TAG_LENGTH);
+        if (indexOfWithin(formattedBody, '>', pos + 1, scanEnd) === -1) {
+          // No `>` close enough to this `<`: treat it as text.
+          if (scanEnd === len) {
+            // The whole remainder was searched; it has no `>` at all.
+            reachedEofWithoutClose = true;
+          }
+          textBuffer += '<';
+          pos += 1;
+          continue;
+        }
+        const tag = parseOpenTag(formattedBody, pos, scanEnd);
         if (!tag) {
           // Malformed open tag: treat as text.
           textBuffer += '<';
