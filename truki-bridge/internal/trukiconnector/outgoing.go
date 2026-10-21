@@ -19,12 +19,14 @@ import (
 
 // CodeRateLimited is the error code stored on an outgoing event the network
 // refused with a rate limit. Networks report it as the Matrix error
-// M_LIMIT_EXCEEDED (as an error reason or a wrapped mautrix.RespError).
+// M_LIMIT_EXCEEDED (as an error reason or a wrapped mautrix.RespError), or
+// as their own errors (see isNetworkRateLimit).
 const CodeRateLimited = "RATE_LIMITED"
 
 // errorCode is the error code stored for a failed message status.
 func errorCode(ms *bridgev2.MessageStatus) string {
-	if string(ms.ErrorReason) == mautrix.MLimitExceeded.ErrCode || errors.Is(ms.InternalError, mautrix.MLimitExceeded) {
+	if string(ms.ErrorReason) == mautrix.MLimitExceeded.ErrCode || errors.Is(ms.InternalError, mautrix.MLimitExceeded) ||
+		isNetworkRateLimit(ms.InternalError) {
 		return CodeRateLimited
 	}
 	return string(ms.ErrorReason)

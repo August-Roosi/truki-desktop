@@ -31,6 +31,9 @@ import (
 var Version = "dev"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "devcli" {
+		os.Exit(devCLI(os.Args[2:]))
+	}
 	version := flag.Bool("version", false, "print version and exit")
 	selftest := flag.String("selftest-db", "", "(hidden) run SQLCipher store self-test in `dir` and exit")
 	printStdout := flag.Bool("test-print-stdout", false,

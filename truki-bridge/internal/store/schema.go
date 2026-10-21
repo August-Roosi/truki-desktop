@@ -6,6 +6,7 @@ package store
 import (
 	"context"
 	"embed"
+	"io/fs"
 
 	"go.mau.fi/util/dbutil"
 )
@@ -14,8 +15,26 @@ import (
 var upgradesFS embed.FS
 
 var upgradeTable = dbutil.BuildUpgradeTable().
-	WithFSPath(upgradesFS, "upgrades").
+	WithFS(upgradesDir()).
 	Finish()
+
+// upgradesDir serves the upgrades directory as the root of a file system.
+// dbutil's WithFSPath joins the directory and file name with filepath.Join,
+// which on Windows gives a backslash path that embed.FS rejects, so the
+// binary panicked at startup there.
+func upgradesDir() interface {
+	fs.ReadFileFS
+	fs.ReadDirFS
+} {
+	sub, err := fs.Sub(upgradesFS, "upgrades")
+	if err != nil {
+		panic(err)
+	}
+	return sub.(interface {
+		fs.ReadFileFS
+		fs.ReadDirFS
+	})
+}
 
 // Store is the Truki bridge database store.
 type Store struct {
