@@ -39,6 +39,7 @@ import { getEmptyState as stickersEmptyState } from './ducks/stickers.preload.ts
 import { getEmptyState as storiesEmptyState } from './ducks/stories.preload.ts';
 import { getEmptyState as storyDistributionListsEmptyState } from './ducks/storyDistributionLists.preload.ts';
 import { getEmptyState as toastEmptyState } from './ducks/toast.preload.ts';
+import { getEmptyState as trukiBridgeEmptyState } from './ducks/trukiBridge.preload.ts';
 import { getEmptyState as updatesEmptyState } from './ducks/updates.preload.ts';
 import { getEmptyState as userEmptyState } from './ducks/user.preload.ts';
 import { getEmptyState as usernameEmptyState } from './ducks/username.preload.ts';
@@ -120,6 +121,7 @@ export function getInitialState(
     storyDistributionLists: generateStoryDistributionListState(
       storyDistributionLists
     ),
+    trukiBridge: trukiBridgeEmptyState(),
     user: generateUserState({
       mainWindowStats,
       menuOptions,
@@ -184,6 +186,7 @@ function getEmptyState(): StateType {
     stories: storiesEmptyState(),
     storyDistributionLists: storyDistributionListsEmptyState(),
     toast: toastEmptyState(),
+    trukiBridge: trukiBridgeEmptyState(),
     updates: updatesEmptyState(),
     user: userEmptyState(),
     username: usernameEmptyState(),

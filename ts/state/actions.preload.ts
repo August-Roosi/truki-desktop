@@ -35,6 +35,7 @@ import { actions as stickers } from './ducks/stickers.preload.ts';
 import { actions as stories } from './ducks/stories.preload.ts';
 import { actions as storyDistributionLists } from './ducks/storyDistributionLists.preload.ts';
 import { actions as toast } from './ducks/toast.preload.ts';
+import { actions as trukiBridge } from './ducks/trukiBridge.preload.ts';
 import { actions as updates } from './ducks/updates.preload.ts';
 import { actions as user } from './ducks/user.preload.ts';
 import { actions as username } from './ducks/username.preload.ts';
@@ -78,4 +79,6 @@ export const actionCreators: ReduxActions = {
   updates,
   user,
   username,
+  // Truki: spread so the upstream ReduxActions type needs no edit.
+  ...{ trukiBridge },
 };

@@ -38,6 +38,7 @@ import { reducer as stickers } from './ducks/stickers.preload.ts';
 import { reducer as stories } from './ducks/stories.preload.ts';
 import { reducer as storyDistributionLists } from './ducks/storyDistributionLists.preload.ts';
 import { reducer as toast } from './ducks/toast.preload.ts';
+import { reducer as trukiBridge } from './ducks/trukiBridge.preload.ts';
 import { reducer as updates } from './ducks/updates.preload.ts';
 import { reducer as user } from './ducks/user.preload.ts';
 import { reducer as username } from './ducks/username.preload.ts';
@@ -78,6 +79,7 @@ export const reducer = combineReducers({
   stories,
   storyDistributionLists,
   toast,
+  trukiBridge,
   updates,
   user,
   username,

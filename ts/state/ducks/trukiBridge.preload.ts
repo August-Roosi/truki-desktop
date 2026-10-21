@@ -1,0 +1,1103 @@
+// Copyright 2026 Truki
+// SPDX-License-Identifier: AGPL-3.0-only
+
+// Bridged chats (WhatsApp, Messenger, ...) as the renderer shows them. The
+// bridge is the source of truth; this only holds what is on screen, fed by
+// truki-bridge requests and pushed events. See
+// docs/truki/specs/2026-10-21-truki-inbox-design.md §3.2 and
+// truki-bridge/PROTOCOL.md for the wire shapes parsed here.
+
+import type { ReadonlyDeep } from 'type-fest';
+import type { ThunkAction } from 'redux-thunk';
+import type { StateType as RootStateType } from '../reducer.preload.ts';
+import type { BoundActionCreatorsMapObject } from '../../hooks/useBoundActions.std.ts';
+import { useBoundActions } from '../../hooks/useBoundActions.std.ts';
+import type {
+  TrukiBridgeEvent,
+  TrukiBridgeIpcResult,
+  TrukiSupervisorStateName,
+} from '../../../app/truki/trukiBridgeProtocol.std.ts';
+import {
+  onTrukiBridgeEvent,
+  trukiBridgeGetState,
+  trukiBridgeRequest,
+} from '../../services/trukiBridgeClient.preload.ts';
+
+// State
+
+export type TrukiBridgedChatSummary = ReadonlyDeep<{
+  id: string;
+  network: string;
+  loginId: string;
+  name: string;
+  avatarMxc?: string;
+  isDM: boolean;
+  unreadCount: number;
+  mutedUntil?: number;
+  lastActivity: number;
+  lastEventId?: string;
+  preview?: { text: string; fromMe: boolean };
+}>;
+
+export type TrukiBridgedEvent = ReadonlyDeep<{
+  id: string;
+  chatId: string;
+  sender: string;
+  type: string;
+  content: unknown;
+  timestamp: number;
+  streamOrder: number;
+  status: '' | 'pending' | 'sent' | 'failed';
+  errorCode?: string;
+  redacted: boolean;
+  relatesTo?: string;
+  relType?: string;
+}>;
+
+export type TrukiBridgeLoginError = ReadonlyDeep<{
+  code: string;
+  message: string;
+}>;
+
+export type TrukiBridgeStateType = ReadonlyDeep<{
+  bridgeState: TrukiSupervisorStateName;
+  networks: ReadonlyArray<{ id: string; name: string; enabled: boolean }>;
+  accounts: ReadonlyArray<{
+    loginId: string;
+    network: string;
+    remoteName: string;
+    state: string;
+    reason?: string;
+  }>;
+  chats: Readonly<Record<string, TrukiBridgedChatSummary>>;
+  selectedChatId: string | undefined;
+  messagesByChat: Readonly<
+    Record<
+      string,
+      {
+        events: ReadonlyArray<TrukiBridgedEvent>;
+        hasOlder: boolean;
+        loading: boolean;
+      }
+    >
+  >;
+  loginProcesses: Readonly<
+    Record<
+      string,
+      {
+        network: string;
+        step: unknown;
+        seq: number;
+        error?: TrukiBridgeLoginError;
+      }
+    >
+  >;
+  pendingLoginEvents: Readonly<
+    Record<
+      string,
+      ReadonlyArray<{
+        seq: number;
+        step?: unknown;
+        error?: TrukiBridgeLoginError;
+      }>
+    >
+  >;
+  // Users typing per chat (event.typing sends the full set).
+  typingByChat: Readonly<Record<string, ReadonlyArray<string>>>;
+  // The last failed request, for the UI to show as a toast.
+  lastError: { code: string; message: string; at: number } | undefined;
+}>;
+
+type MessagesEntry = ReadonlyDeep<
+  TrukiBridgeStateType['messagesByChat'][string]
+>;
+type AccountRow = ReadonlyDeep<TrukiBridgeStateType['accounts'][number]>;
+type PendingLoginEvent = ReadonlyDeep<
+  TrukiBridgeStateType['pendingLoginEvents'][string][number]
+>;
+
+// The single local Matrix user of the bridge; its events are outgoing.
+export const TRUKI_BRIDGE_LOCAL_USER = '@me:truki.local';
+
+const MESSAGES_PAGE_SIZE = 50;
+const CHATS_PAGE_SIZE = 200;
+const MAX_CHATS = 5000;
+const MAX_PENDING_LOGIN_EVENTS = 16;
+
+// Actions
+
+const EVENT_APPLIED = 'trukiBridge/EVENT_APPLIED';
+const NETWORKS_LOADED = 'trukiBridge/NETWORKS_LOADED';
+const ACCOUNTS_LOADED = 'trukiBridge/ACCOUNTS_LOADED';
+const CHATS_LOADED = 'trukiBridge/CHATS_LOADED';
+const CHAT_LOADED = 'trukiBridge/CHAT_LOADED';
+const CHAT_SELECTED = 'trukiBridge/CHAT_SELECTED';
+const SELECTION_CLEARED = 'trukiBridge/SELECTION_CLEARED';
+const MESSAGES_LOADING = 'trukiBridge/MESSAGES_LOADING';
+const MESSAGES_LOADED = 'trukiBridge/MESSAGES_LOADED';
+const MESSAGES_LOAD_FAILED = 'trukiBridge/MESSAGES_LOAD_FAILED';
+const LOGIN_STARTED = 'trukiBridge/LOGIN_STARTED';
+const ERROR_SET = 'trukiBridge/ERROR_SET';
+const ERROR_CLEARED = 'trukiBridge/ERROR_CLEARED';
+
+type EventAppliedAction = ReadonlyDeep<{
+  type: typeof EVENT_APPLIED;
+  payload: { event: TrukiBridgeEvent; receivedAt: number };
+}>;
+type NetworksLoadedAction = ReadonlyDeep<{
+  type: typeof NETWORKS_LOADED;
+  payload: TrukiBridgeStateType['networks'];
+}>;
+type AccountsLoadedAction = ReadonlyDeep<{
+  type: typeof ACCOUNTS_LOADED;
+  payload: TrukiBridgeStateType['accounts'];
+}>;
+type ChatsLoadedAction = ReadonlyDeep<{
+  type: typeof CHATS_LOADED;
+  payload: ReadonlyArray<unknown>;
+}>;
+type ChatLoadedAction = ReadonlyDeep<{
+  type: typeof CHAT_LOADED;
+  payload: unknown;
+}>;
+type ChatSelectedAction = ReadonlyDeep<{
+  type: typeof CHAT_SELECTED;
+  payload: { chatId: string };
+}>;
+type SelectionClearedAction = ReadonlyDeep<{ type: typeof SELECTION_CLEARED }>;
+type MessagesLoadingAction = ReadonlyDeep<{
+  type: typeof MESSAGES_LOADING;
+  payload: { chatId: string };
+}>;
+type MessagesLoadedAction = ReadonlyDeep<{
+  type: typeof MESSAGES_LOADED;
+  payload: {
+    chatId: string;
+    events: ReadonlyArray<unknown>;
+    mode: 'replace' | 'older';
+    hasOlder: boolean;
+  };
+}>;
+type MessagesLoadFailedAction = ReadonlyDeep<{
+  type: typeof MESSAGES_LOAD_FAILED;
+  payload: { chatId: string };
+}>;
+type LoginStartedAction = ReadonlyDeep<{
+  type: typeof LOGIN_STARTED;
+  payload: { processId: string; network: string; step: unknown; seq: number };
+}>;
+type ErrorSetAction = ReadonlyDeep<{
+  type: typeof ERROR_SET;
+  payload: { code: string; message: string; at: number };
+}>;
+type ErrorClearedAction = ReadonlyDeep<{ type: typeof ERROR_CLEARED }>;
+
+export type TrukiBridgeAction = ReadonlyDeep<
+  | EventAppliedAction
+  | NetworksLoadedAction
+  | AccountsLoadedAction
+  | ChatsLoadedAction
+  | ChatLoadedAction
+  | ChatSelectedAction
+  | SelectionClearedAction
+  | MessagesLoadingAction
+  | MessagesLoadedAction
+  | MessagesLoadFailedAction
+  | LoginStartedAction
+  | ErrorSetAction
+  | ErrorClearedAction
+>;
+
+type TrukiBridgeThunk<R = void> = ReadonlyDeep<
+  ThunkAction<R, RootStateType, unknown, TrukiBridgeAction>
+>;
+
+// Client seam (tests swap it for a fake)
+
+export type TrukiBridgeClient = ReadonlyDeep<{
+  request: <T>(
+    method: string,
+    params?: unknown
+  ) => Promise<TrukiBridgeIpcResult<T>>;
+  getState: () => Promise<TrukiBridgeIpcResult<TrukiSupervisorStateName>>;
+  onEvent: (cb: (e: TrukiBridgeEvent) => void) => () => void;
+}>;
+
+const defaultClient: TrukiBridgeClient = {
+  request: trukiBridgeRequest,
+  getState: trukiBridgeGetState,
+  onEvent: onTrukiBridgeEvent,
+};
+
+let client: TrukiBridgeClient = defaultClient;
+let unsubscribe: (() => void) | undefined;
+const chatsBeingFetched = new Set<string>();
+
+export function setTrukiBridgeClientForTesting(
+  testClient: TrukiBridgeClient | undefined
+): void {
+  unsubscribe?.();
+  unsubscribe = undefined;
+  chatsBeingFetched.clear();
+  client = testClient ?? defaultClient;
+}
+
+// Wire parsing. Params come from the bridge through main; anything that does
+// not have the documented shape is ignored rather than trusted.
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value != null && !Array.isArray(value);
+}
+
+function str(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function parseTime(value: unknown): number | undefined {
+  if (typeof value !== 'string' || value === '') {
+    return undefined;
+  }
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+const SUPERVISOR_STATES: ReadonlySet<string> =
+  new Set<TrukiSupervisorStateName>([
+    'stopped',
+    'starting',
+    'running',
+    'backoff',
+    'gave-up',
+    'unavailable',
+  ]);
+
+function parseSupervisorState(
+  value: unknown
+): TrukiSupervisorStateName | undefined {
+  return typeof value === 'string' && SUPERVISOR_STATES.has(value)
+    ? (value as TrukiSupervisorStateName)
+    : undefined;
+}
+
+function parseChat(
+  value: unknown,
+  existing: TrukiBridgedChatSummary | undefined
+): TrukiBridgedChatSummary | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const id = str(value.id);
+  if (!id) {
+    return undefined;
+  }
+  const avatarMxc = str(value.avatar) || undefined;
+  const mutedUntil = parseTime(value.mutedUntil);
+  const lastEventId = str(value.lastEventId) || existing?.lastEventId;
+  return {
+    id,
+    network: str(value.network) ?? '',
+    loginId: str(value.loginId) ?? '',
+    name: str(value.name) ?? '',
+    isDM: value.isDm === true,
+    unreadCount:
+      typeof value.unreadCount === 'number' && value.unreadCount >= 0
+        ? value.unreadCount
+        : 0,
+    lastActivity: parseTime(value.lastActivity) ?? existing?.lastActivity ?? 0,
+    ...(avatarMxc ? { avatarMxc } : {}),
+    ...(mutedUntil !== undefined ? { mutedUntil } : {}),
+    ...(lastEventId ? { lastEventId } : {}),
+    ...(existing?.preview ? { preview: existing.preview } : {}),
+  };
+}
+
+function stripRedacted(content: unknown): unknown {
+  if (isRecord(content) && content['m.relates_to'] !== undefined) {
+    return { 'm.relates_to': content['m.relates_to'] };
+  }
+  return {};
+}
+
+function parseStatus(value: unknown): TrukiBridgedEvent['status'] {
+  return value === 'pending' || value === 'sent' || value === 'failed'
+    ? value
+    : '';
+}
+
+function parseEvent(
+  value: unknown,
+  fallbackTime: number
+): TrukiBridgedEvent | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const id = str(value.id);
+  const chatId = str(value.chatId);
+  if (!id || !chatId) {
+    return undefined;
+  }
+  const redacted = value.redacted === true;
+  const errorCode = str(value.errorCode);
+  const relatesTo = str(value.relatesTo);
+  const relType = str(value.relType);
+  return {
+    id,
+    chatId,
+    sender: str(value.sender) ?? '',
+    type: str(value.type) ?? '',
+    content: redacted ? stripRedacted(value.content) : (value.content ?? {}),
+    timestamp: parseTime(value.timestamp) ?? fallbackTime,
+    streamOrder: typeof value.streamOrder === 'number' ? value.streamOrder : 0,
+    status: parseStatus(value.status),
+    redacted,
+    ...(errorCode ? { errorCode } : {}),
+    ...(relatesTo ? { relatesTo } : {}),
+    ...(relType ? { relType } : {}),
+  };
+}
+
+function parseLoginError(value: unknown): TrukiBridgeLoginError | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  return {
+    code: str(value.code) ?? 'LOGIN_FAILED',
+    message: str(value.message) ?? '',
+  };
+}
+
+function isFromMe(event: TrukiBridgedEvent): boolean {
+  return event.sender === TRUKI_BRIDGE_LOCAL_USER || event.status !== '';
+}
+
+// A visible message in the timeline (not a reaction, edit or redaction).
+function isTimelineMessage(event: TrukiBridgedEvent): boolean {
+  return event.type === 'm.room.message' && event.relType !== 'm.replace';
+}
+
+function previewText(event: TrukiBridgedEvent): string {
+  if (event.redacted || !isRecord(event.content)) {
+    return '';
+  }
+  return str(event.content.body) ?? '';
+}
+
+// Action creators (plain)
+
+export function trukiBridgeEventApplied(
+  event: TrukiBridgeEvent,
+  receivedAt: number
+): EventAppliedAction {
+  return { type: EVENT_APPLIED, payload: { event, receivedAt } };
+}
+
+export function messagesLoaded(
+  chatId: string,
+  events: ReadonlyArray<unknown>,
+  mode: 'replace' | 'older',
+  hasOlder: boolean
+): MessagesLoadedAction {
+  return {
+    type: MESSAGES_LOADED,
+    payload: { chatId, events, mode, hasOlder },
+  };
+}
+
+export function loginStarted(payload: {
+  processId: string;
+  network: string;
+  step: unknown;
+  seq: number;
+}): LoginStartedAction {
+  return { type: LOGIN_STARTED, payload };
+}
+
+function clearBridgedSelection(): SelectionClearedAction {
+  return { type: SELECTION_CLEARED };
+}
+
+function clearBridgeError(): ErrorClearedAction {
+  return { type: ERROR_CLEARED };
+}
+
+function errorFrom(
+  result: TrukiBridgeIpcResult<unknown> & { ok: false }
+): ErrorSetAction {
+  return {
+    type: ERROR_SET,
+    payload: {
+      code: result.bridgeCode ?? result.code,
+      message: result.message,
+      at: Date.now(),
+    },
+  };
+}
+
+// Thunks. None of them throws: a failed request becomes `lastError`.
+
+async function call<T>(
+  dispatch: (action: TrukiBridgeAction) => unknown,
+  method: string,
+  params?: unknown
+): Promise<T | undefined> {
+  const result = await client.request<T>(method, params);
+  if (!result.ok) {
+    dispatch(errorFrom(result));
+    return undefined;
+  }
+  return result.value;
+}
+
+function loadNetworksAndAccounts(): TrukiBridgeThunk<Promise<void>> {
+  return async dispatch => {
+    const networks = await call<unknown>(dispatch, 'networks.list');
+    if (Array.isArray(networks)) {
+      dispatch({
+        type: NETWORKS_LOADED,
+        payload: networks.filter(isRecord).map(n => ({
+          id: str(n.id) ?? '',
+          name: str(n.name) ?? '',
+          enabled: n.enabled === true,
+        })),
+      });
+    }
+    const accounts = await call<unknown>(dispatch, 'accounts.list');
+    if (Array.isArray(accounts)) {
+      dispatch({
+        type: ACCOUNTS_LOADED,
+        payload: accounts.filter(isRecord).map(a => {
+          const row: AccountRow = {
+            loginId: str(a.loginId) ?? '',
+            network: str(a.network) ?? '',
+            remoteName: str(a.remoteName) ?? '',
+            state: str(a.state) ?? 'UNKNOWN',
+          };
+          const reason = str(a.reason);
+          return reason ? { ...row, reason } : row;
+        }),
+      });
+    }
+  };
+}
+
+function loadChats(): TrukiBridgeThunk<Promise<void>> {
+  return async dispatch => {
+    const all: Array<unknown> = [];
+    let cursor: string | undefined;
+    while (all.length < MAX_CHATS) {
+      // Pages are sequential: each needs the previous page's cursor.
+      // oxlint-disable-next-line no-await-in-loop
+      const page = await call<unknown>(
+        dispatch,
+        'chats.list',
+        cursor ? { cursor, limit: CHATS_PAGE_SIZE } : { limit: CHATS_PAGE_SIZE }
+      );
+      if (!isRecord(page)) {
+        return;
+      }
+      const chats = Array.isArray(page.chats) ? page.chats : [];
+      all.push(...chats);
+      cursor = str(page.nextCursor);
+      if (!cursor || chats.length === 0) {
+        break;
+      }
+    }
+    dispatch({ type: CHATS_LOADED, payload: all.slice(0, MAX_CHATS) });
+  };
+}
+
+function fetchChat(chatId: string): TrukiBridgeThunk<Promise<void>> {
+  return async dispatch => {
+    if (chatsBeingFetched.has(chatId)) {
+      return;
+    }
+    chatsBeingFetched.add(chatId);
+    try {
+      const result = await call<unknown>(dispatch, 'chats.get', { chatId });
+      if (isRecord(result)) {
+        dispatch({ type: CHAT_LOADED, payload: result.chat });
+      }
+    } finally {
+      chatsBeingFetched.delete(chatId);
+    }
+  };
+}
+
+function loadMessages(
+  chatId: string,
+  mode: 'replace' | 'older'
+): TrukiBridgeThunk<Promise<void>> {
+  return async (dispatch, getState) => {
+    const entry = getState().trukiBridge.messagesByChat[chatId];
+    if (entry?.loading) {
+      return;
+    }
+    let before: number | undefined;
+    if (mode === 'older') {
+      if (!entry || !entry.hasOlder || entry.events.length === 0) {
+        return;
+      }
+      before = entry.events[0]?.streamOrder;
+    }
+    dispatch({ type: MESSAGES_LOADING, payload: { chatId } });
+    const result = await call<unknown>(dispatch, 'messages.list', {
+      chatId,
+      limit: MESSAGES_PAGE_SIZE,
+      ...(before !== undefined ? { before } : {}),
+    });
+    if (!isRecord(result) || !Array.isArray(result.events)) {
+      dispatch({ type: MESSAGES_LOAD_FAILED, payload: { chatId } });
+      return;
+    }
+    dispatch(
+      messagesLoaded(
+        chatId,
+        result.events,
+        mode,
+        result.events.length >= MESSAGES_PAGE_SIZE
+      )
+    );
+  };
+}
+
+function loadOlderMessages(chatId: string): TrukiBridgeThunk<Promise<void>> {
+  return loadMessages(chatId, 'older');
+}
+
+function reloadAfterStart(): TrukiBridgeThunk<Promise<void>> {
+  return async (dispatch, getState) => {
+    const { selectedChatId } = getState().trukiBridge;
+    await Promise.all([
+      dispatch(loadNetworksAndAccounts()),
+      dispatch(loadChats()),
+      selectedChatId
+        ? dispatch(loadMessages(selectedChatId, 'replace'))
+        : undefined,
+    ]);
+  };
+}
+
+function trukiBridgeEventReceived(event: TrukiBridgeEvent): TrukiBridgeThunk {
+  return (dispatch, getState) => {
+    const before = getState().trukiBridge;
+    dispatch(trukiBridgeEventApplied(event, Date.now()));
+
+    const { method, params } = event;
+    if (method === 'event.supervisorState' && isRecord(params)) {
+      const next = parseSupervisorState(params.state);
+      if (next === 'running' && before.bridgeState !== 'running') {
+        void dispatch(reloadAfterStart());
+      }
+      return;
+    }
+    if (method === 'event.message' && isRecord(params)) {
+      const chatId = str(params.chatId);
+      if (chatId && !before.chats[chatId]) {
+        void dispatch(fetchChat(chatId));
+      }
+    }
+  };
+}
+
+function trukiBridgeStart(): TrukiBridgeThunk {
+  return dispatch => {
+    if (unsubscribe) {
+      return;
+    }
+    unsubscribe = client.onEvent(e => {
+      dispatch(trukiBridgeEventReceived(e));
+    });
+    void (async () => {
+      const result = await client.getState();
+      if (!result.ok) {
+        dispatch(errorFrom(result));
+        return;
+      }
+      // Applying the pulled state as an event also loads everything when
+      // the bridge is already running.
+      dispatch(
+        trukiBridgeEventReceived({
+          method: 'event.supervisorState',
+          params: { state: result.value },
+        })
+      );
+    })();
+  };
+}
+
+function selectBridgedChat(chatId: string): TrukiBridgeThunk {
+  return (dispatch, getState) => {
+    dispatch({ type: CHAT_SELECTED, payload: { chatId } });
+    const { bridgeState, messagesByChat } = getState().trukiBridge;
+    // While the bridge is down the open chat is loaded when it is running.
+    if (bridgeState === 'running' && !messagesByChat[chatId]) {
+      void dispatch(loadMessages(chatId, 'replace'));
+    }
+  };
+}
+
+function sendText(
+  chatId: string,
+  text: string,
+  replyTo?: string
+): TrukiBridgeThunk<Promise<void>> {
+  return async dispatch => {
+    await call(dispatch, 'messages.send', {
+      chatId,
+      text,
+      ...(replyTo ? { replyTo } : {}),
+    });
+  };
+}
+
+function sendReaction(
+  chatId: string,
+  eventId: string,
+  key: string
+): TrukiBridgeThunk<Promise<void>> {
+  return async dispatch => {
+    await call(dispatch, 'messages.react', { chatId, eventId, key });
+  };
+}
+
+function redactMessage(
+  chatId: string,
+  eventId: string
+): TrukiBridgeThunk<Promise<void>> {
+  return async dispatch => {
+    await call(dispatch, 'messages.redact', { chatId, eventId });
+  };
+}
+
+function markRead(
+  chatId: string,
+  eventId: string
+): TrukiBridgeThunk<Promise<void>> {
+  return async dispatch => {
+    await call(dispatch, 'chats.markRead', { chatId, eventId });
+  };
+}
+
+// `until` is a ms timestamp; undefined unmutes.
+function setMuted(
+  chatId: string,
+  until: number | undefined
+): TrukiBridgeThunk<Promise<void>> {
+  return async dispatch => {
+    await call(dispatch, 'chats.setMuted', {
+      chatId,
+      ...(until !== undefined ? { until: new Date(until).toISOString() } : {}),
+    });
+  };
+}
+
+// A new send with the failed event's text and reply; never automatic.
+function retrySend(
+  chatId: string,
+  eventId: string
+): TrukiBridgeThunk<Promise<void>> {
+  return async (dispatch, getState) => {
+    const event = getState().trukiBridge.messagesByChat[chatId]?.events.find(
+      e => e.id === eventId
+    );
+    const content = event && isRecord(event.content) ? event.content : {};
+    const text = str(content.body);
+    if (!event || content.msgtype !== 'm.text' || text === undefined) {
+      dispatch({
+        type: ERROR_SET,
+        payload: {
+          code: 'INVALID_INPUT',
+          message: 'only failed text messages can be retried',
+          at: Date.now(),
+        },
+      });
+      return;
+    }
+    const relatesTo = content['m.relates_to'];
+    const inReplyTo = isRecord(relatesTo)
+      ? relatesTo['m.in_reply_to']
+      : undefined;
+    const replyTo = isRecord(inReplyTo) ? str(inReplyTo.event_id) : undefined;
+    await dispatch(sendText(chatId, text, replyTo));
+  };
+}
+
+export const actions = {
+  trukiBridgeStart,
+  trukiBridgeEventReceived,
+  loadChats,
+  selectBridgedChat,
+  clearBridgedSelection,
+  loadOlderMessages,
+  sendText,
+  sendReaction,
+  redactMessage,
+  markRead,
+  setMuted,
+  retrySend,
+  clearBridgeError,
+};
+
+export const useTrukiBridgeActions = (): BoundActionCreatorsMapObject<
+  typeof actions
+> => useBoundActions(actions);
+
+// Reducer
+
+export function getEmptyState(): TrukiBridgeStateType {
+  return {
+    bridgeState: 'stopped',
+    networks: [],
+    accounts: [],
+    chats: {},
+    selectedChatId: undefined,
+    messagesByChat: {},
+    loginProcesses: {},
+    pendingLoginEvents: {},
+    typingByChat: {},
+    lastError: undefined,
+  };
+}
+
+function upsertEvents(
+  existing: ReadonlyArray<TrukiBridgedEvent>,
+  incoming: ReadonlyArray<TrukiBridgedEvent>
+): ReadonlyArray<TrukiBridgedEvent> {
+  const byId = new Map<string, TrukiBridgedEvent>();
+  for (const event of existing) {
+    byId.set(event.id, event);
+  }
+  for (const event of incoming) {
+    byId.set(event.id, event);
+  }
+  return [...byId.values()].sort((a, b) => a.streamOrder - b.streamOrder);
+}
+
+function applyMessage(
+  state: TrukiBridgeStateType,
+  event: TrukiBridgedEvent
+): TrukiBridgeStateType {
+  const { chatId } = event;
+  const entry = state.messagesByChat[chatId];
+  const known = entry?.events.some(e => e.id === event.id) ?? false;
+  const existingChat = state.chats[chatId];
+  const chat: TrukiBridgedChatSummary = existingChat ?? {
+    id: chatId,
+    network: '',
+    loginId: '',
+    name: '',
+    isDM: false,
+    unreadCount: 0,
+    lastActivity: 0,
+  };
+
+  let nextChat = chat;
+  if (isTimelineMessage(event)) {
+    const fromMe = isFromMe(event);
+    const isNew = !known && chat.lastEventId !== event.id;
+    if (event.timestamp >= chat.lastActivity || chat.lastEventId === event.id) {
+      nextChat = {
+        ...nextChat,
+        lastActivity: Math.max(event.timestamp, chat.lastActivity),
+        lastEventId: event.id,
+        preview: { text: previewText(event), fromMe },
+      };
+    }
+    if (isNew && !fromMe && !event.redacted) {
+      nextChat = { ...nextChat, unreadCount: nextChat.unreadCount + 1 };
+    }
+  } else if (event.redacted && chat.lastEventId === event.id && chat.preview) {
+    nextChat = { ...nextChat, preview: { ...chat.preview, text: '' } };
+  }
+
+  return {
+    ...state,
+    chats:
+      nextChat === existingChat
+        ? state.chats
+        : { ...state.chats, [chatId]: nextChat },
+    messagesByChat: entry
+      ? {
+          ...state.messagesByChat,
+          [chatId]: { ...entry, events: upsertEvents(entry.events, [event]) },
+        }
+      : state.messagesByChat,
+  };
+}
+
+function applyLoginEvent(
+  process: TrukiBridgeStateType['loginProcesses'][string],
+  pending: PendingLoginEvent
+): TrukiBridgeStateType['loginProcesses'][string] {
+  if (pending.error) {
+    return { ...process, error: pending.error };
+  }
+  if (pending.seq > process.seq) {
+    return {
+      ...process,
+      step: pending.step,
+      seq: pending.seq,
+      error: undefined,
+    };
+  }
+  return process;
+}
+
+function applyLoginStep(
+  state: TrukiBridgeStateType,
+  params: Record<string, unknown>
+): TrukiBridgeStateType {
+  const processId = str(params.processId);
+  if (!processId) {
+    return state;
+  }
+  const error = parseLoginError(params.error);
+  const seq = typeof params.seq === 'number' ? params.seq : 0;
+  const pending: PendingLoginEvent = error
+    ? { seq, error }
+    : { seq, step: params.step };
+
+  const process = state.loginProcesses[processId];
+  if (process) {
+    const next = applyLoginEvent(process, pending);
+    return next === process
+      ? state
+      : {
+          ...state,
+          loginProcesses: { ...state.loginProcesses, [processId]: next },
+        };
+  }
+  const buffered = state.pendingLoginEvents[processId] ?? [];
+  return {
+    ...state,
+    pendingLoginEvents: {
+      ...state.pendingLoginEvents,
+      [processId]: [...buffered, pending].slice(-MAX_PENDING_LOGIN_EVENTS),
+    },
+  };
+}
+
+function applyAccountState(
+  state: TrukiBridgeStateType,
+  params: Record<string, unknown>
+): TrukiBridgeStateType {
+  const loginId = str(params.loginId);
+  if (!loginId) {
+    return state;
+  }
+  const network = str(params.network) ?? '';
+  const reason = str(params.reason);
+  const existing = state.accounts.find(
+    a => a.loginId === loginId && a.network === network
+  );
+  const row: AccountRow = {
+    loginId,
+    network,
+    remoteName: existing?.remoteName ?? '',
+    state: str(params.state) ?? 'UNKNOWN',
+    ...(reason ? { reason } : {}),
+  };
+  if (!existing) {
+    return { ...state, accounts: [...state.accounts, row] };
+  }
+  return {
+    ...state,
+    accounts: state.accounts.map(a => (a === existing ? row : a)),
+  };
+}
+
+function applySupervisorState(
+  state: TrukiBridgeStateType,
+  next: TrukiSupervisorStateName
+): TrukiBridgeStateType {
+  if (next === state.bridgeState) {
+    return state;
+  }
+  const messagesByChat: Record<string, MessagesEntry> = {};
+  for (const [chatId, entry] of Object.entries(state.messagesByChat)) {
+    if (next === 'running') {
+      // Events pushed while the bridge was down were missed: only the open
+      // chat is kept (and reloaded by the thunk); others reload when opened.
+      if (chatId === state.selectedChatId) {
+        messagesByChat[chatId] = { ...entry, loading: false };
+      }
+    } else {
+      messagesByChat[chatId] = { ...entry, loading: false };
+    }
+  }
+  return {
+    ...state,
+    bridgeState: next,
+    messagesByChat,
+    typingByChat: next === 'running' ? state.typingByChat : {},
+  };
+}
+
+function applyEvent(
+  state: TrukiBridgeStateType,
+  { method, params }: TrukiBridgeEvent,
+  receivedAt: number
+): TrukiBridgeStateType {
+  if (!isRecord(params)) {
+    return state;
+  }
+  switch (method) {
+    case 'event.supervisorState': {
+      const next = parseSupervisorState(params.state);
+      return next ? applySupervisorState(state, next) : state;
+    }
+    case 'event.message': {
+      const event = parseEvent(params, receivedAt);
+      return event ? applyMessage(state, event) : state;
+    }
+    case 'event.chat': {
+      const id = str(params.id);
+      const chat = parseChat(params, id ? state.chats[id] : undefined);
+      return chat
+        ? { ...state, chats: { ...state.chats, [chat.id]: chat } }
+        : state;
+    }
+    case 'event.accountState':
+      return applyAccountState(state, params);
+    case 'event.login.step':
+      return applyLoginStep(state, params);
+    case 'event.typing': {
+      const chatId = str(params.chatId);
+      if (!chatId) {
+        return state;
+      }
+      const users = Array.isArray(params.users)
+        ? params.users.filter((u): u is string => typeof u === 'string')
+        : [];
+      const typingByChat = { ...state.typingByChat };
+      if (users.length) {
+        typingByChat[chatId] = users;
+      } else {
+        delete typingByChat[chatId];
+      }
+      return { ...state, typingByChat };
+    }
+    default:
+      // event.receipt and event.notify carry nothing this state shows.
+      return state;
+  }
+}
+
+export function reducer(
+  state: TrukiBridgeStateType = getEmptyState(),
+  action: TrukiBridgeAction
+): TrukiBridgeStateType {
+  switch (action.type) {
+    case EVENT_APPLIED:
+      return applyEvent(state, action.payload.event, action.payload.receivedAt);
+    case NETWORKS_LOADED:
+      return { ...state, networks: action.payload };
+    case ACCOUNTS_LOADED:
+      return { ...state, accounts: action.payload };
+    case CHATS_LOADED: {
+      const chats: Record<string, TrukiBridgedChatSummary> = {};
+      for (const value of action.payload) {
+        const id = isRecord(value) ? str(value.id) : undefined;
+        const chat = parseChat(value, id ? state.chats[id] : undefined);
+        if (chat) {
+          chats[chat.id] = chat;
+        }
+      }
+      return { ...state, chats };
+    }
+    case CHAT_LOADED: {
+      const id = isRecord(action.payload) ? str(action.payload.id) : undefined;
+      const chat = parseChat(action.payload, id ? state.chats[id] : undefined);
+      return chat
+        ? { ...state, chats: { ...state.chats, [chat.id]: chat } }
+        : state;
+    }
+    case CHAT_SELECTED:
+      return { ...state, selectedChatId: action.payload.chatId };
+    case SELECTION_CLEARED:
+      return state.selectedChatId === undefined
+        ? state
+        : { ...state, selectedChatId: undefined };
+    case MESSAGES_LOADING: {
+      const { chatId } = action.payload;
+      const entry = state.messagesByChat[chatId] ?? {
+        events: [],
+        hasOlder: false,
+        loading: false,
+      };
+      return {
+        ...state,
+        messagesByChat: {
+          ...state.messagesByChat,
+          [chatId]: { ...entry, loading: true },
+        },
+      };
+    }
+    case MESSAGES_LOAD_FAILED: {
+      const { chatId } = action.payload;
+      const entry = state.messagesByChat[chatId];
+      if (!entry) {
+        return state;
+      }
+      return {
+        ...state,
+        messagesByChat: {
+          ...state.messagesByChat,
+          [chatId]: { ...entry, loading: false },
+        },
+      };
+    }
+    case MESSAGES_LOADED: {
+      const { chatId, mode, hasOlder } = action.payload;
+      const events: Array<TrukiBridgedEvent> = [];
+      for (const value of action.payload.events) {
+        const event = parseEvent(value, 0);
+        if (event && event.chatId === chatId) {
+          events.push(event);
+        }
+      }
+      const entry = state.messagesByChat[chatId];
+      const nextEvents =
+        mode === 'replace' || !entry
+          ? upsertEvents([], events)
+          : upsertEvents(entry.events, events);
+      return {
+        ...state,
+        messagesByChat: {
+          ...state.messagesByChat,
+          [chatId]: {
+            events: nextEvents,
+            hasOlder,
+            loading: false,
+          },
+        },
+      };
+    }
+    case LOGIN_STARTED: {
+      const { processId, network, step, seq } = action.payload;
+      let process: TrukiBridgeStateType['loginProcesses'][string] = {
+        network,
+        step,
+        seq,
+      };
+      for (const pending of state.pendingLoginEvents[processId] ?? []) {
+        process = applyLoginEvent(process, pending);
+      }
+      const pendingLoginEvents = { ...state.pendingLoginEvents };
+      delete pendingLoginEvents[processId];
+      return {
+        ...state,
+        loginProcesses: { ...state.loginProcesses, [processId]: process },
+        pendingLoginEvents,
+      };
+    }
+    case ERROR_SET:
+      return { ...state, lastError: action.payload };
+    case ERROR_CLEARED:
+      return state.lastError === undefined
+        ? state
+        : { ...state, lastError: undefined };
+    default:
+      return state;
+  }
+}
