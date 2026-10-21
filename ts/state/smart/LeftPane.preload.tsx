@@ -137,6 +137,7 @@ import { SmartNotificationProfilesMenu } from './NotificationProfilesMenu.preloa
 import { getActiveProfile } from '../selectors/notificationProfiles.dom.ts';
 import type { StateSelector } from '../types.std.ts';
 import { useTrukiSpaceAccent } from '../../hooks/useTrukiSpaceAccent.dom.ts';
+import { useTrukiLeftPaneInboxProps } from './useTrukiLeftPaneInboxProps.preload.ts';
 import {
   getAllChatFoldersMutedStats,
   getAllChatFoldersUnreadStats,
@@ -398,6 +399,7 @@ export const SmartLeftPane = memo(function SmartLeftPane({
   const isMacOS = useSelector(getIsMacOS);
   const isUpdateDownloaded = useSelector(getIsUpdateDownloaded);
   const modeSpecificProps = useSelector(getModeSpecificProps);
+  const trukiModeSpecificProps = useTrukiLeftPaneInboxProps(modeSpecificProps);
   const navTabsCollapsed = useSelector(getNavTabsCollapsed);
   const preferredWidthFromStorage = useSelector(getPreferredLeftPaneWidth);
   const selectedChatFolder = useSelector(getSelectedChatFolder);
@@ -546,7 +548,7 @@ export const SmartLeftPane = memo(function SmartLeftPane({
       isNotificationProfileActive={isNotificationProfileActive}
       isUpdateDownloaded={isUpdateDownloaded}
       lookupConversationWithoutServiceId={lookupConversationWithoutServiceId}
-      modeSpecificProps={modeSpecificProps}
+      modeSpecificProps={trukiModeSpecificProps}
       navTabsCollapsed={navTabsCollapsed}
       onChatFoldersOpenSettings={handleChatFolderOpenSettings}
       onOutgoingAudioCallInConversation={onOutgoingAudioCallInConversation}

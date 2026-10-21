@@ -39,6 +39,10 @@ import { ListView } from './ListView.dom.tsx';
 import { Button, ButtonVariant } from './Button.dom.tsx';
 import { ListTile } from './ListTile.dom.tsx';
 import type { RenderConversationListItemContextMenuProps } from './conversationList/BaseConversationListItem.dom.tsx';
+import {
+  TrukiBridgedChatRow,
+  type TrukiBridgedChatRowDataType,
+} from './truki/TrukiBridgedChatRow.dom.tsx';
 
 const { get, pick } = lodash;
 
@@ -64,6 +68,7 @@ export enum RowType {
   StartNewConversation = 'StartNewConversation',
   UsernameSearchResult = 'UsernameSearchResult',
   EmptyResults = 'EmptyResults',
+  TrukiBridgedChat = 'TrukiBridgedChat',
 }
 
 type ArchiveButtonRowType = {
@@ -184,6 +189,11 @@ type EmptyResultsRowType = {
   message: string;
 };
 
+// Truki: a bridged (WhatsApp/Messenger/Instagram) chat in the inbox.
+type TrukiBridgedChatRowType = {
+  type: RowType.TrukiBridgedChat;
+} & TrukiBridgedChatRowDataType;
+
 export type Row =
   | ArchiveButtonRowType
   | BlankRowType
@@ -204,6 +214,7 @@ export type Row =
   | StartNewConversationRowType
   | SelectSingleGroupRowType
   | UsernameRowType
+  | TrukiBridgedChatRowType
   | EmptyResultsRowType;
 
 export type PropsType = {
@@ -316,6 +327,7 @@ export function ConversationList({
         case RowType.SearchResultsLoadingFakeRow:
         case RowType.StartNewConversation:
         case RowType.UsernameSearchResult:
+        case RowType.TrukiBridgedChat:
           return NORMAL_ROW_HEIGHT;
         case RowType.EmptyResults:
           return EMPTY_RESULTS_ROW_HEIGHT;
@@ -633,6 +645,20 @@ export function ConversationList({
             </div>
           );
           key = 'empty-results';
+          break;
+        case RowType.TrukiBridgedChat:
+          result = (
+            <TrukiBridgedChatRow
+              chat={row.chat}
+              i18n={i18n}
+              isDisconnected={row.isDisconnected}
+              isSelected={row.isSelected}
+              onMarkRead={row.onMarkRead}
+              onSelect={row.onSelect}
+              onSetMuted={row.onSetMuted}
+            />
+          );
+          key = `truki-bridged-chat:${row.chat.id}`;
           break;
         default:
           throw missingCaseError(row);

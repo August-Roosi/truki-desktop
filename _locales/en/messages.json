@@ -467,6 +467,14 @@
     "messageformat": "Show more",
     "description": "Truki inbox > message body > button shown when a long message was truncated"
   },
+  "icu:TrukiBridgedChatRow__PreviewFromMe": {
+    "messageformat": "You: {text}",
+    "description": "Truki inbox > chat list > bridged chat row > preview of the last message when you sent it"
+  },
+  "icu:TrukiBridgedChatRow__Disconnected": {
+    "messageformat": "This account is disconnected",
+    "description": "Truki inbox > chat list > bridged chat row > tooltip on the grey network badge when the chat's account is not connected"
+  },
   "icu:LeftPaneChatFolders__ItemUnreadBadge__AccessibleLabel": {
     "messageformat": "{count, plural, one {# Unread Message} other {# Unread Messages}}",
     "description": "Left Pane > Inbox > Chat List > Chat Folders > Item > Badge Count > Accessible Label"

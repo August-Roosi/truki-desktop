@@ -22,6 +22,8 @@ import { ChatFolderType } from '../../types/ChatFolder.std.ts';
 import { AxoButton } from '../../axo/AxoButton.dom.tsx';
 import { NavTab, SettingsPage, type Location } from '../../types/Nav.std.ts';
 import { tw } from '../../axo/tw.dom.tsx';
+import { TrukiInboxRows } from './TrukiInboxRows.dom.ts';
+import type { TrukiBridgedChatSummary } from '../../state/ducks/trukiBridge.preload.ts';
 
 const { last } = lodash;
 
@@ -37,6 +39,13 @@ export type LeftPaneInboxPropsType = {
   searchConversation: undefined | ConversationType;
   selectedChatFolder: ChatFolder | null;
   filterByUnread: boolean;
+  // Truki: bridged chats merged into the unpinned section (TrukiInboxRows).
+  trukiBridgedChats?: ReadonlyArray<TrukiBridgedChatSummary>;
+  trukiSelectedChatId?: string;
+  trukiDisconnectedLoginIds?: ReadonlyArray<string>;
+  onSelectTrukiChat?: (chatId: string) => void;
+  onTrukiChatMarkRead?: (chatId: string) => void;
+  onTrukiChatSetMuted?: (chatId: string, muted: boolean) => void;
 };
 
 // oxlint-disable-next-line react/prefer-function-component
@@ -52,6 +61,8 @@ export class LeftPaneInboxHelper extends LeftPaneHelper<LeftPaneInboxPropsType> 
   readonly #searchConversation: undefined | ConversationType;
   readonly #selectedChatFolder: ChatFolder | null;
   readonly #filterByUnread: boolean;
+  // Truki: set only when there are bridged chats to merge in.
+  readonly #truki: TrukiInboxRows | undefined;
 
   constructor({
     conversations,
@@ -65,6 +76,7 @@ export class LeftPaneInboxHelper extends LeftPaneHelper<LeftPaneInboxPropsType> 
     searchConversation,
     selectedChatFolder,
     filterByUnread,
+    ...trukiProps
   }: Readonly<LeftPaneInboxPropsType>) {
     super();
 
@@ -79,6 +91,7 @@ export class LeftPaneInboxHelper extends LeftPaneHelper<LeftPaneInboxPropsType> 
     this.#searchConversation = searchConversation;
     this.#selectedChatFolder = selectedChatFolder;
     this.#filterByUnread = filterByUnread;
+    this.#truki = TrukiInboxRows.create(conversations, trukiProps);
   }
 
   getRowCount(): number {
@@ -91,6 +104,14 @@ export class LeftPaneInboxHelper extends LeftPaneHelper<LeftPaneInboxPropsType> 
       }
     }
     const buttonCount = this.#shouldShowArchiveButton() ? 1 : 0;
+    if (this.#truki) {
+      return (
+        headerCount +
+        this.#pinnedConversations.length +
+        this.#truki.length +
+        buttonCount
+      );
+    }
     return (
       headerCount +
       this.#pinnedConversations.length +
@@ -259,6 +280,20 @@ export class LeftPaneInboxHelper extends LeftPaneHelper<LeftPaneInboxPropsType> 
       }
     }
 
+    // Truki: the unpinned section with bridged chats merged in.
+    if (this.#truki) {
+      if (index < this.#truki.length) {
+        return this.#truki.getRow(index);
+      }
+      if (index === this.#truki.length && this.#shouldShowArchiveButton()) {
+        return {
+          type: RowType.ArchiveButton,
+          archivedConversationsCount,
+        };
+      }
+      return undefined;
+    }
+
     if (index < conversations.length) {
       return {
         type: RowType.Conversation,
@@ -295,6 +330,18 @@ export class LeftPaneInboxHelper extends LeftPaneHelper<LeftPaneInboxPropsType> 
       return pinnedConversationIndex + 1;
     }
 
+    if (this.#truki) {
+      const mergedIndex = this.#truki.indexOfConversation(
+        selectedConversationId
+      );
+      if (mergedIndex === -1) {
+        return undefined;
+      }
+      const pinnedOffset = this.#pinnedConversations.length;
+      const headerOffset = this.#hasPinned() ? 2 : 0;
+      return mergedIndex + pinnedOffset + headerOffset;
+    }
+
     const conversationIndex = this.#conversations.findIndex(
       isConversationSelected
     );
@@ -324,6 +371,16 @@ export class LeftPaneInboxHelper extends LeftPaneHelper<LeftPaneInboxPropsType> 
   ): undefined | { conversationId: string } {
     const pinnedConversations = this.#pinnedConversations;
     const conversations = this.#conversations;
+    // Truki: index into the merged list; a bridged row gives the next Signal
+    // conversation. With none after it, the fallback below picks the last.
+    if (this.#truki && conversationIndex >= pinnedConversations.length) {
+      const trukiConversation = this.#truki.conversationAtOrAfter(
+        conversationIndex - pinnedConversations.length
+      );
+      if (trukiConversation) {
+        return { conversationId: trukiConversation.id };
+      }
+    }
     const conversation =
       pinnedConversations[conversationIndex] ||
       conversations[conversationIndex - pinnedConversations.length] ||
@@ -360,6 +417,9 @@ export class LeftPaneInboxHelper extends LeftPaneHelper<LeftPaneInboxPropsType> 
   }
 
   #hasNotPinned(): boolean {
+    if (this.#truki) {
+      return true;
+    }
     return this.#conversations.length !== 0;
   }
 }
