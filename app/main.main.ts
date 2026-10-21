@@ -2101,6 +2101,14 @@ electronProtocol.registerSchemesAsPrivileged([
       stream: true,
     },
   },
+  {
+    scheme: 'truki-media',
+    privileges: {
+      standard: true,
+      supportFetchAPI: true,
+      stream: true,
+    },
+  },
 ]);
 
 // This method will be called when Electron has finished

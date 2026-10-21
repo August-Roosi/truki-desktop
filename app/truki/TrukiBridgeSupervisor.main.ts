@@ -5,10 +5,10 @@ import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
-import { join, resolve, sep } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline';
-import { app, ipcMain, net, protocol, safeStorage } from 'electron';
+import { app, dialog, ipcMain, net, protocol, safeStorage } from 'electron';
 import type { BrowserWindow } from 'electron';
 
 import { createLogger } from '../../ts/logging/log.std.ts';
@@ -17,10 +17,13 @@ import {
   TRUKI_BRIDGE_PROTOCOL_VERSION,
   TrukiBridgeError,
   isTrukiBridgeErrorCode,
+  trukiMediaUrlToMxc,
 } from './trukiBridgeProtocol.std.ts';
 import type {
   TrukiBridgeEvent,
   TrukiBridgeIpcResult,
+  TrukiPickAttachmentParams,
+  TrukiSupervisorStateName,
 } from './trukiBridgeProtocol.std.ts';
 
 const log = createLogger('TrukiBridge');
@@ -47,7 +50,12 @@ export type TrukiBridgeSupervisorOptions = {
   decryptKey: (enc: Buffer<ArrayBuffer>) => string;
   isEncryptionAvailable: () => boolean;
   onEvent: (e: TrukiBridgeEvent) => void;
+  // Called on every state change (see emitState()).
+  onStateChange?: (state: TrukiSupervisorStateName) => void;
+  // Window the attachment dialog is modal to, if any.
+  getParentWindow?: () => BrowserWindow | undefined;
   // Test seams
+  showOpenDialog?: typeof dialog.showOpenDialog;
   spawnFn?: typeof spawn;
   now?: () => number;
   setTimeoutFn?: typeof setTimeout;
@@ -116,6 +124,7 @@ export class TrukiBridgeSupervisor {
   #closed = false;
   // A JSON line that is not an object is logged once, without its content.
   #warnedNonObject = false;
+  #lastReportedState: TrukiSupervisorStateName | undefined;
 
   constructor(opts: TrukiBridgeSupervisorOptions) {
     this.#opts = opts;
@@ -127,6 +136,36 @@ export class TrukiBridgeSupervisor {
     return this.#state;
   }
 
+  // 'unavailable' (no secure storage) takes precedence: nothing can start.
+  get reportedState(): TrukiSupervisorStateName {
+    return this.#opts.isEncryptionAvailable() ? this.#state : 'unavailable';
+  }
+
+  // Reports the current state to onStateChange even if it did not change;
+  // used once at startup. State changes are reported by themselves.
+  emitState(): void {
+    this.#lastReportedState = undefined;
+    this.#reportState();
+  }
+
+  #setState(state: TrukiBridgeSupervisorState): void {
+    this.#state = state;
+    this.#reportState();
+  }
+
+  #reportState(): void {
+    const state = this.reportedState;
+    if (state === this.#lastReportedState) {
+      return;
+    }
+    this.#lastReportedState = state;
+    try {
+      this.#opts.onStateChange?.(state);
+    } catch (error) {
+      log.error('onStateChange handler threw', error);
+    }
+  }
+
   getEnabledNetworks(): ReadonlyArray<string> {
     return this.#enabledNetworks;
   }
@@ -136,6 +175,7 @@ export class TrukiBridgeSupervisor {
       throw new TrukiBridgeError('INVALID_INPUT', 'ids must be strings');
     }
     this.#enabledNetworks = [...ids];
+    this.#reportState();
     fs.mkdirSync(this.#bridgeDir, { recursive: true });
     fs.writeFileSync(
       join(this.#bridgeDir, SETTINGS_FILE_NAME),
@@ -191,6 +231,40 @@ export class TrukiBridgeSupervisor {
       throw new TrukiBridgeError('BRIDGE_UNAVAILABLE', 'bridge is not running');
     }
     return (await this.#send(run, method, params)) as T;
+  }
+
+  // Shows a file dialog in the main process and hands the chosen path to the
+  // bridge, so the renderer never names a path (ruling R19).
+  async pickAttachment(
+    params: TrukiPickAttachmentParams
+  ): Promise<{ eventId: string } | { cancelled: true }> {
+    const { chatId, caption, replyTo } = (params ?? {}) as Partial<
+      Record<keyof TrukiPickAttachmentParams, unknown>
+    >;
+    if (
+      typeof chatId !== 'string' ||
+      chatId === '' ||
+      (caption !== undefined && typeof caption !== 'string') ||
+      (replyTo !== undefined && typeof replyTo !== 'string')
+    ) {
+      throw new TrukiBridgeError('INVALID_INPUT', 'invalid attachment params');
+    }
+    const showOpenDialog = this.#opts.showOpenDialog ?? dialog.showOpenDialog;
+    const options = { properties: ['openFile' as const] };
+    const parent = this.#opts.getParentWindow?.();
+    const result = parent
+      ? await showOpenDialog(parent, options)
+      : await showOpenDialog(options);
+    const filePath = result.filePaths[0];
+    if (result.canceled || filePath === undefined) {
+      return { cancelled: true };
+    }
+    return this.request<{ eventId: string }>('messages.send', {
+      chatId,
+      text: caption ?? '',
+      replyTo,
+      attachments: [{ path: filePath, name: basename(filePath) }],
+    });
   }
 
   async shutdown(): Promise<void> {
@@ -249,7 +323,7 @@ export class TrukiBridgeSupervisor {
   }
 
   #start(): void {
-    this.#state = 'starting';
+    this.#setState('starting');
     let run: Run;
     let key: string;
     try {
@@ -261,7 +335,7 @@ export class TrukiBridgeSupervisor {
         'BRIDGE_UNAVAILABLE',
         'could not start the bridge'
       );
-      this.#state = 'gave-up';
+      this.#setState('gave-up');
       this.#ready = undefined;
       return;
     }
@@ -354,7 +428,7 @@ export class TrukiBridgeSupervisor {
         failure.code === 'BRIDGE_INCOMPATIBLE'
       ) {
         this.#fatal = failure;
-        this.#state = 'gave-up';
+        this.#setState('gave-up');
         run.stopping = true;
       }
       if (!run.closed) {
@@ -363,7 +437,7 @@ export class TrukiBridgeSupervisor {
       throw failure;
     }
     if (this.#run === run && !run.stopping && !run.closed) {
-      this.#state = 'running';
+      this.#setState('running');
     }
   }
 
@@ -472,11 +546,11 @@ export class TrukiBridgeSupervisor {
 
     if (this.#crashTimes.length >= MAX_CRASHES_IN_WINDOW) {
       log.error('bridge crashed too often, giving up');
-      this.#state = 'gave-up';
+      this.#setState('gave-up');
       return;
     }
     const delay = BACKOFF_BASE_MS * 2 ** (this.#crashTimes.length - 1);
-    this.#state = 'backoff';
+    this.#setState('backoff');
     const timeoutFn = this.#opts.setTimeoutFn ?? setTimeout;
     this.#restartTimer = timeoutFn(() => {
       this.#restartTimer = undefined;
@@ -506,7 +580,7 @@ export class TrukiBridgeSupervisor {
     this.#run = undefined;
     this.#ready = undefined;
     if (this.#state !== 'gave-up') {
-      this.#state = 'stopped';
+      this.#setState('stopped');
     }
   }
 }
@@ -628,7 +702,15 @@ export function startTrukiBridgeSupervisor(
     onEvent: e => {
       getMainWindow()?.webContents.send('truki-bridge:event', e);
     },
+    onStateChange: state => {
+      getMainWindow()?.webContents.send('truki-bridge:event', {
+        method: 'event.supervisorState',
+        params: { state },
+      });
+    },
+    getParentWindow: getMainWindow,
   });
+  supervisor.emitState();
 
   ipcMain.handle(
     'truki-bridge:request',
@@ -645,12 +727,22 @@ export function startTrukiBridgeSupervisor(
       })
   );
 
+  ipcMain.handle(
+    'truki-bridge:pick-attachment',
+    async (_event, params: unknown) =>
+      toTrukiBridgeIpcResult(async () =>
+        supervisor.pickAttachment(params as TrukiPickAttachmentParams)
+      )
+  );
+
   // truki-media://<host>/<path> stands for mxc://<host>/<path>.
   const mediaDir = join(userDataPath, BRIDGE_DIR_NAME, 'media');
   protocol.handle('truki-media', async request => {
     try {
-      const url = new URL(request.url);
-      const mediaId = `mxc://${url.host}${url.pathname}`;
+      const mediaId = trukiMediaUrlToMxc(request.url);
+      if (!mediaId) {
+        return new Response(null, { status: 404 });
+      }
       const { path } = await supervisor.request<{ path: string }>(
         'media.path',
         { mediaId }

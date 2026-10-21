@@ -16,7 +16,12 @@ import {
   shouldDelayQuitForBridge,
   toTrukiBridgeIpcResult,
 } from '../../../app/truki/TrukiBridgeSupervisor.main.ts';
-import { TrukiBridgeError } from '../../../app/truki/trukiBridgeProtocol.std.ts';
+import {
+  TrukiBridgeError,
+  mxcToTrukiMediaUrl,
+  trukiMediaUrlToMxc,
+} from '../../../app/truki/trukiBridgeProtocol.std.ts';
+import type { TrukiBridgeSupervisorOptions } from '../../../app/truki/TrukiBridgeSupervisor.main.ts';
 import type { TrukiBridgeEvent } from '../../../app/truki/trukiBridgeProtocol.std.ts';
 
 const FIXTURE = path.join(__dirname, 'fixtures', 'fakeTrukiBridge.node.mjs');
@@ -63,6 +68,7 @@ describe('TrukiBridgeSupervisor', () => {
   let spawnCalls: Array<SpawnCall>;
   let children: Array<ChildProcess>;
   let events: Array<TrukiBridgeEvent>;
+  let states: Array<string>;
   const timers: Array<{ fn: () => void; ms: number }> = [];
 
   const encryptKey = (plain: string): Buffer<ArrayBuffer> =>
@@ -75,11 +81,13 @@ describe('TrukiBridgeSupervisor', () => {
     encryption = true,
     fakeClock = false,
     userData = path.join(tmp, 'userData'),
+    showOpenDialog,
   }: {
     childEnv?: Record<string, string>;
     encryption?: boolean;
     fakeClock?: boolean;
     userData?: string;
+    showOpenDialog?: TrukiBridgeSupervisorOptions['showOpenDialog'];
   } = {}): TrukiBridgeSupervisor {
     const spawnFn = ((
       command: string,
@@ -108,6 +116,8 @@ describe('TrukiBridgeSupervisor', () => {
       decryptKey,
       isEncryptionAvailable: () => encryption,
       onEvent: e => events.push(e),
+      onStateChange: state => states.push(state),
+      ...(showOpenDialog ? { showOpenDialog } : {}),
       spawnFn,
       ...(fakeClock
         ? {
@@ -128,6 +138,7 @@ describe('TrukiBridgeSupervisor', () => {
     spawnCalls = [];
     children = [];
     events = [];
+    states = [];
     timers.length = 0;
   });
 
@@ -363,6 +374,124 @@ describe('TrukiBridgeSupervisor', () => {
     });
     assert.strictEqual(supervisor.state, 'running');
     assert.strictEqual(spawnCalls.length, 1);
+  });
+
+  describe('supervisor state events', () => {
+    it('reports stopped, starting, running', async () => {
+      const supervisor = make();
+      supervisor.emitState();
+      assert.deepEqual(states, ['stopped']);
+      await supervisor.setEnabledNetworks(['signal']);
+      await supervisor.request('echo', {});
+      assert.deepEqual(states, ['stopped', 'starting', 'running']);
+    });
+
+    it('reports backoff after a crash', async () => {
+      const supervisor = make({ fakeClock: true });
+      await supervisor.setEnabledNetworks(['signal']);
+      await supervisor.request('echo', {});
+      await rejection(supervisor.request('crash'));
+      assert.deepEqual(states, ['stopped', 'starting', 'running', 'backoff']);
+    });
+
+    it('reports unavailable when secure storage is missing', async () => {
+      const supervisor = make({ encryption: false });
+      supervisor.emitState();
+      await supervisor.setEnabledNetworks(['signal']);
+      assert.deepEqual(states, ['unavailable']);
+      assert.strictEqual(spawnCalls.length, 0);
+    });
+  });
+
+  describe('media URLs', () => {
+    const hex = 'ab'.repeat(32);
+
+    it('round-trips mxc and truki-media URLs', () => {
+      const url = `truki-media://truki.local/${hex}`;
+      assert.strictEqual(mxcToTrukiMediaUrl(`mxc://truki.local/${hex}`), url);
+      assert.strictEqual(trukiMediaUrlToMxc(url), `mxc://truki.local/${hex}`);
+    });
+
+    it('normalises an uppercase host', () => {
+      assert.strictEqual(
+        mxcToTrukiMediaUrl(`mxc://TRUKI.Local/${hex}`),
+        `truki-media://truki.local/${hex}`
+      );
+      assert.strictEqual(
+        trukiMediaUrlToMxc(`truki-media://TRUKI.LOCAL/${hex}`),
+        `mxc://truki.local/${hex}`
+      );
+    });
+
+    it('rejects other hosts, non-hex ids and traversal', () => {
+      for (const bad of [
+        `mxc://evil.example/${hex}`,
+        `mxc://truki.local/${'zz'.repeat(32)}`,
+        `mxc://truki.local/${hex.slice(2)}`,
+        `mxc://truki.local/../${hex}`,
+        `mxc://truki.local/${hex}/..`,
+        `mxc://truki.local/${hex}?x=1`,
+        `http://truki.local/${hex}`,
+        '',
+      ]) {
+        assert.isUndefined(mxcToTrukiMediaUrl(bad), bad);
+      }
+      for (const bad of [
+        `truki-media://evil.example/${hex}`,
+        `truki-media://truki.local/${'zz'.repeat(32)}`,
+        `truki-media://truki.local/../${hex}`,
+        `truki-media://truki.local/%2e%2e/${hex}`,
+        `truki-media://truki.local/${hex}#frag`,
+        `https://truki.local/${hex}`,
+        '',
+      ]) {
+        assert.isUndefined(trukiMediaUrlToMxc(bad), bad);
+      }
+    });
+  });
+
+  describe('pickAttachment', () => {
+    it('returns cancelled without touching the bridge', async () => {
+      const supervisor = make({
+        showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+      });
+      // No network is enabled, so any bridge request would be refused.
+      assert.deepEqual(await supervisor.pickAttachment({ chatId: 'c' }), {
+        cancelled: true,
+      });
+      assert.strictEqual(spawnCalls.length, 0);
+    });
+
+    it('sends the main-issued path to the bridge', async () => {
+      const file = path.join(tmp, 'photo.png');
+      fs.writeFileSync(file, 'x');
+      const supervisor = make({
+        showOpenDialog: async () => ({ canceled: false, filePaths: [file] }),
+      });
+      await supervisor.setEnabledNetworks(['signal']);
+      // The fake bridge echoes messages.send params.
+      const result = (await supervisor.pickAttachment({
+        chatId: 'c',
+        caption: 'hi',
+        replyTo: '$e',
+      })) as unknown;
+      assert.deepEqual(result, {
+        chatId: 'c',
+        text: 'hi',
+        replyTo: '$e',
+        attachments: [{ path: file, name: 'photo.png' }],
+      });
+    });
+
+    it('rejects malformed params', async () => {
+      const supervisor = make({
+        showOpenDialog: async () => {
+          throw new Error('dialog must not open');
+        },
+      });
+      const error = await rejection(supervisor.pickAttachment({ chatId: '' }));
+      assert.strictEqual((error as TrukiBridgeError).code, 'INVALID_INPUT');
+    });
   });
 
   describe('handleTrukiBridgeIpcRequest', () => {
