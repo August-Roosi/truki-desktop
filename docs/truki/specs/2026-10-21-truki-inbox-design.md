@@ -47,28 +47,20 @@ Renderer                                         Main process
 │ Space editor ─ TrukiSpaceOtherNetworks   │    └──────────────────────────┘
 │                                          │                 │ stdio JSON-RPC
 │ state: ducks/trukiBridge (+ selectors)   │                 ▼
-│ preload: window.trukiBridge              │          truki-bridge.exe
+│ preload client: trukiBridgeClient        │          truki-bridge.exe
 └──────────────────────────────────────────┘
 ```
 
 ### 3.1 Renderer access
 
-New file `ts/windows/main/trukiBridge.preload.ts` exposes:
-
-```ts
-window.trukiBridge = {
-  request<T>(method: string, params?: unknown): Promise<TrukiBridgeIpcResult<T>>;
-  onEvent(cb: (e: TrukiBridgeEvent) => void): () => void;   // returns unsubscribe
-  setEnabledNetworks(ids: ReadonlyArray<string>): Promise<TrukiBridgeIpcResult<void>>;
-  pickAttachment(chatId: string, opts): Promise<TrukiBridgeIpcResult<{eventId: string}>>;
-  startCookieLogin(network: string, processId: string, stepId: string): Promise<TrukiBridgeIpcResult<void>>;
-  restart(): Promise<TrukiBridgeIpcResult<void>>;
-};
-```
-
-`TrukiBridgeIpcResult` / `TrukiBridgeEvent` are the existing types from
-`app/truki/trukiBridgeProtocol.std.ts`. The renderer never passes a file path
-or a cookie value.
+Signal's redux and service code runs in the preload, which imports
+`ipcRenderer` directly (as `ducks/backups.preload.ts` does). A new Truki
+module `ts/services/trukiBridgeClient.preload.ts` wraps the IPC:
+`trukiBridgeRequest(method, params)`, `onTrukiBridgeEvent(cb)`,
+`trukiPickAttachment(params)`, plus restart / cookie-login calls. No window
+global and no preload-entry edit are needed. Results use the existing
+`TrukiBridgeIpcResult`; the renderer never passes a file path or a cookie
+value.
 
 ### 3.2 State
 
@@ -133,9 +125,12 @@ Context menu: Mute / Unmute, Add to Space… (§6), Mark read.
   (`messages.redact`).
 - **Read state:** opening the chat or reaching the bottom calls
   `chats.markRead` with the newest event id.
-- **Notifications:** `event.notify` → Signal's `notificationService`,
-  honouring Signal's notification settings; clicking selects the bridged
-  chat.
+- **Notifications:** `event.notify` → a Truki service that shows an
+  Electron/HTML `Notification` directly, honouring Signal's
+  `notification-setting` (off / name / count / message), skipping muted and
+  currently open chats; clicking focuses the window and selects the bridged
+  chat. Signal's `notificationService` is not edited (it is built around
+  Signal conversations).
 
 Out of v1: voice notes, sending stickers, sending typing indicators,
 forwarding, message info.
@@ -248,13 +243,15 @@ Space…" writes the same store.
 | `ts/components/ConversationList.dom.tsx` | `RowType.TrukiBridgedChat` + its row type + render branch |
 | `ts/components/leftPane/LeftPaneInboxHelper.dom.tsx` | merge bridged rows into the inbox list |
 | `ts/state/smart/LeftPane.preload.tsx` | pass bridged chat summaries (filtered by Space) to the helper |
-| `ts/state/smart/ChatsTab.preload.tsx` | render `TrukiBridgedConversation` when a bridged chat is selected; clear on Signal selection |
-| `ts/windows/main/preload.preload.ts` | one side-effect import of `./trukiBridge.preload.ts` |
+| `ts/components/ChatsTab.dom.tsx` | optional `trukiSelectedChatId` + `renderTrukiConversation` props; render it instead of the Signal view when set |
+| `ts/state/smart/ChatsTab.preload.tsx` | pass those props; clear the bridged selection when a Signal chat is selected |
 | `ts/state/reducer.preload.ts` | register the `trukiBridge` duck |
 | `ts/state/actions.preload.ts` | register its actions |
-| `ts/components/Preferences.dom.tsx` | Connected accounts nav item + render branch |
+| `ts/state/getInitialState.preload.ts` | `trukiBridge` empty state in the initial and empty state objects |
+| `ts/components/Preferences.dom.tsx` | Connected accounts nav item + render branch (optional render prop) |
+| `ts/state/smart/Preferences.preload.tsx` | pass the Connected accounts render prop |
 | `ts/types/Nav.std.ts` | `SettingsPage.TrukiConnectedAccounts` |
-| `ts/types/StorageKeys.std.ts` | `trukiSpaceBridgedMembers` key |
+| `ts/types/StorageKeys.std.ts` | `trukiSpaceBridgedMembers` and `trukiBridgeBanRiskAccepted` keys |
 | `ts/components/preferences/chatFolders/PreferencesEditChatFoldersPage.dom.tsx` | insert `TrukiSpaceOtherNetworks` |
 | `app/main.main.ts` | `truki-media` entry in `registerSchemesAsPrivileged` |
 
