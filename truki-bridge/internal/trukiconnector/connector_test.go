@@ -697,3 +697,106 @@ func TestLiveRemoteMessageDeterministicID(t *testing.T) {
 		t.Fatalf("stored %d messages; want 2 (original + edit)", n)
 	}
 }
+
+// A redaction strips the target's body from the store, the search index and
+// the event pushed to the client; a replay of the message cannot restore it.
+func TestRedactionStripsContent(t *testing.T) {
+	c, st, sink := newTestConnector(t)
+	ctx := context.Background()
+	ghost := c.GhostIntent("alice")
+	room := createRoom(t, c, ghost)
+	key := networkid.PortalKey{ID: "chat-1"}
+	part := func() *bridgev2.MatrixSendExtra {
+		return &bridgev2.MatrixSendExtra{MessageMeta: &database.Message{ID: "msg-1", PartID: "p0", Room: key}}
+	}
+
+	msg, err := ghost.SendMessage(ctx, room, event.EventMessage, textContent("secret words"), part())
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	if found, err := st.Search(ctx, "secret", 10); err != nil || len(found) != 1 {
+		t.Fatalf("Search before redaction = %d, %v; want 1", len(found), err)
+	}
+
+	reaction := &event.Content{Parsed: &event.ReactionEventContent{RelatesTo: event.RelatesTo{
+		Type: event.RelAnnotation, EventID: msg.EventID, Key: "👍",
+	}}}
+	react, err := ghost.SendMessage(ctx, room, event.EventReaction, reaction, nil)
+	if err != nil {
+		t.Fatalf("SendMessage reaction: %v", err)
+	}
+
+	sink.reset()
+	redact := func(target id.EventID) {
+		t.Helper()
+		content := &event.Content{Parsed: &event.RedactionEventContent{Redacts: target}}
+		if _, err := ghost.SendMessage(ctx, room, event.EventRedaction, content, nil); err != nil {
+			t.Fatalf("SendMessage redaction: %v", err)
+		}
+	}
+	redact(msg.EventID)
+	redact(react.EventID)
+
+	assertNoBody := func(where string, content json.RawMessage) {
+		t.Helper()
+		if strings.Contains(string(content), "secret") || strings.Contains(string(content), "body") {
+			t.Fatalf("%s still carries the body: %s", where, content)
+		}
+	}
+	got, err := st.GetEvent(ctx, msg.EventID)
+	if err != nil || got == nil || !got.Redacted {
+		t.Fatalf("GetEvent = %+v, %v; want a redacted event", got, err)
+	}
+	assertNoBody("stored event", got.Content)
+	if string(got.Content) != "{}" {
+		t.Fatalf("redacted message content = %s; want {}", got.Content)
+	}
+
+	pushed := 0
+	for _, call := range sink.snapshot() {
+		if call.Kind == "message" && call.Event.ID == msg.EventID {
+			pushed++
+			if !call.Event.Redacted {
+				t.Fatalf("pushed event for the redaction is not marked redacted")
+			}
+			assertNoBody("pushed event", call.Event.Content)
+		}
+	}
+	if pushed != 1 {
+		t.Fatalf("pushed the redacted message %d times; want 1", pushed)
+	}
+
+	// A redacted reaction keeps its relation so the client can drop it.
+	gotReact, err := st.GetEvent(ctx, react.EventID)
+	if err != nil || gotReact == nil || !gotReact.Redacted {
+		t.Fatalf("GetEvent reaction = %+v, %v; want redacted", gotReact, err)
+	}
+	if gotReact.RelatesTo != msg.EventID || gotReact.RelType != string(event.RelAnnotation) ||
+		!strings.Contains(string(gotReact.Content), string(msg.EventID)) {
+		t.Fatalf("redacted reaction lost its relation: %+v %s", gotReact, gotReact.Content)
+	}
+
+	// Replaying the original message part must not bring the body back.
+	if _, err := ghost.SendMessage(ctx, room, event.EventMessage, textContent("secret words"), part()); err != nil {
+		t.Fatalf("replay SendMessage: %v", err)
+	}
+	got, err = st.GetEvent(ctx, msg.EventID)
+	if err != nil || got == nil {
+		t.Fatalf("GetEvent after replay = %v", err)
+	}
+	assertNoBody("stored event after replay", got.Content)
+
+	for _, q := range []string{"secret", "words"} {
+		if found, err := st.Search(ctx, q, 10); err != nil || len(found) != 0 {
+			t.Fatalf("Search(%q) after redaction = %d, %v; want none", q, len(found), err)
+		}
+	}
+	// The index itself no longer holds the words, not only the filtered query.
+	var indexed int
+	if err := st.DB.QueryRow(ctx, `SELECT COUNT(*) FROM event_fts WHERE event_fts MATCH 'secret'`).Scan(&indexed); err != nil {
+		t.Fatalf("count FTS rows: %v", err)
+	}
+	if indexed != 0 {
+		t.Fatalf("FTS index still matches 'secret' %d times", indexed)
+	}
+}

@@ -172,13 +172,34 @@ func (c *Connector) storeAndPush(ctx context.Context, row *store.Event) (*store.
 	return stored, true, nil
 }
 
-// markRedacted flags the target of a redaction and pushes it again.
+// redactedContent strips content down to its relation: the body, media and
+// everything else is dropped, so a redacted message no longer reaches the
+// client or the full-text index. m.relates_to is kept so the client can still
+// tell which message a redacted reaction or edit belonged to.
+func redactedContent(raw json.RawMessage) json.RawMessage {
+	var fields map[string]json.RawMessage
+	out := map[string]json.RawMessage{}
+	if json.Unmarshal(raw, &fields) == nil {
+		if rel, ok := fields["m.relates_to"]; ok {
+			out["m.relates_to"] = rel
+		}
+	}
+	stripped, err := json.Marshal(out)
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return stripped
+}
+
+// markRedacted flags the target of a redaction, strips its content and
+// pushes it again.
 func (c *Connector) markRedacted(ctx context.Context, room id.RoomID, target id.EventID) error {
 	ev, err := c.store.GetEvent(ctx, target)
 	if err != nil || ev == nil || ev.RoomID != room || ev.Redacted {
 		return err
 	}
 	ev.Redacted = true
+	ev.Content = redactedContent(ev.Content)
 	if _, err := c.store.PutEvent(ctx, ev); err != nil {
 		return err
 	}

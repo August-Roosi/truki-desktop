@@ -70,6 +70,8 @@ const FirstStreamOrder int64 = 1 << 40
 //
 // Re-putting an existing event never changes its stream_order, never overwrites
 // a non-empty status or error_code with an empty one, and never un-redacts it.
+// The content of an already redacted event is never replaced, so a replayed
+// message cannot bring back the body its redaction removed.
 func (s *Store) PutEvent(ctx context.Context, evt *Event) (inserted bool, err error) {
 	res, err := s.DB.Exec(ctx, `
 		INSERT INTO event (id, room_id, sender, type, state_key, content, timestamp, stream_order, status, error_code, redacted, relates_to, rel_type)
@@ -94,7 +96,8 @@ func (s *Store) PutEvent(ctx context.Context, evt *Event) (inserted bool, err er
 	}
 	_, err = s.DB.Exec(ctx, `
 		UPDATE event SET
-			room_id = $2, sender = $3, type = $4, state_key = $5, content = $6,
+			room_id = $2, sender = $3, type = $4, state_key = $5,
+			content = CASE WHEN redacted THEN content ELSE $6 END,
 			timestamp = $7,
 			status = CASE WHEN $8 = '' THEN status ELSE $8 END,
 			error_code = CASE WHEN $9 = '' THEN error_code ELSE $9 END,
