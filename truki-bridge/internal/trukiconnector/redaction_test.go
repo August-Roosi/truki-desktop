@@ -136,6 +136,98 @@ func TestRedactionBeforeTarget(t *testing.T) {
 	}
 }
 
+// An edit that arrives after its original was redacted is stored stripped
+// and redacted, so the redacted body never re-enters the store or the
+// full-text index.
+func TestLateEditOfRedactedIsStripped(t *testing.T) {
+	c, st, _ := newTestConnector(t)
+	ctx := context.Background()
+	ghost := c.GhostIntent("alice")
+	room := createRoom(t, c, ghost)
+
+	msg, err := ghost.SendMessage(ctx, room, event.EventMessage, textContent("secret words"), nil)
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	redactEvent(t, ghost, room, msg.EventID)
+
+	edit := &event.Content{Parsed: &event.MessageEventContent{
+		MsgType:    event.MsgText,
+		Body:       "* secret words 2",
+		NewContent: &event.MessageEventContent{MsgType: event.MsgText, Body: "secret words 2"},
+		RelatesTo:  &event.RelatesTo{Type: event.RelReplace, EventID: msg.EventID},
+	}}
+	if _, err := ghost.SendMessage(ctx, room, event.EventMessage, edit, nil); err != nil {
+		t.Fatalf("SendMessage late edit: %v", err)
+	}
+
+	editRow := findReplacement(t, st, room, msg.EventID)
+	if !editRow.Redacted {
+		t.Fatalf("late edit not marked redacted: %+v", editRow)
+	}
+	if strings.Contains(string(editRow.Content), "secret") ||
+		strings.Contains(string(editRow.Content), `"body"`) ||
+		strings.Contains(string(editRow.Content), "m.new_content") {
+		t.Fatalf("late edit still carries content: %s", editRow.Content)
+	}
+	if found, err := st.Search(ctx, "secret", 10); err != nil || len(found) != 0 {
+		t.Fatalf("Search after late edit = %d, %v; want none", len(found), err)
+	}
+}
+
+// A redaction for a target that is not stored yet is followed by the target's
+// edit and then the target itself: all of them end up stripped, and the
+// redacted body is not searchable.
+func TestEditBeforeTombstonedTarget(t *testing.T) {
+	c, st, _ := newTestConnector(t)
+	ctx := context.Background()
+	ghost := c.GhostIntent("alice")
+	room := createRoom(t, c, ghost)
+	key := networkid.PortalKey{ID: "chat-1"}
+	target := c.GenerateDeterministicEventID(room, key, "msg-late", "p0")
+
+	redactEvent(t, ghost, room, target)
+
+	edit := &event.Content{Parsed: &event.MessageEventContent{
+		MsgType:    event.MsgText,
+		Body:       "* late body 2",
+		NewContent: &event.MessageEventContent{MsgType: event.MsgText, Body: "late body 2"},
+		RelatesTo:  &event.RelatesTo{Type: event.RelReplace, EventID: target},
+	}}
+	if _, err := ghost.SendMessage(ctx, room, event.EventMessage, edit, nil); err != nil {
+		t.Fatalf("SendMessage edit: %v", err)
+	}
+
+	part := &bridgev2.MatrixSendExtra{MessageMeta: &database.Message{ID: "msg-late", PartID: "p0", Room: key}}
+	sent, err := ghost.SendMessage(ctx, room, event.EventMessage, textContent("late body"), part)
+	if err != nil {
+		t.Fatalf("SendMessage late target: %v", err)
+	}
+	if sent.EventID != target {
+		t.Fatalf("late target stored as %s; want %s", sent.EventID, target)
+	}
+
+	editRow := findReplacement(t, st, room, target)
+	if !editRow.Redacted {
+		t.Fatalf("edit of tombstoned target not marked redacted: %+v", editRow)
+	}
+	if strings.Contains(string(editRow.Content), "late body") ||
+		strings.Contains(string(editRow.Content), `"body"`) ||
+		strings.Contains(string(editRow.Content), "m.new_content") {
+		t.Fatalf("edit of tombstoned target still carries content: %s", editRow.Content)
+	}
+	got, err := st.GetEvent(ctx, target)
+	if err != nil || got == nil || !got.Redacted {
+		t.Fatalf("late target = %+v, %v; want Redacted=true", got, err)
+	}
+	if strings.Contains(string(got.Content), "late body") {
+		t.Fatalf("late target content = %s; want no body", got.Content)
+	}
+	if found, err := st.Search(ctx, "late", 10); err != nil || len(found) != 0 {
+		t.Fatalf("Search after late arrivals = %d, %v; want none", len(found), err)
+	}
+}
+
 // Redacting the last reference to a media file deletes it; while another
 // non-redacted event still references the same mxc, the file stays.
 func TestRedactDeletesUnreferencedMedia(t *testing.T) {

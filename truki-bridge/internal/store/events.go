@@ -94,7 +94,13 @@ func RedactedContent(raw json.RawMessage) json.RawMessage {
 //
 // When the event was redacted before it was first stored, a tombstone is
 // waiting for it: the tombstone is consumed and the event stored redacted
-// with its content stripped, both in the same transaction.
+// with its content stripped, both in the same transaction. An edit
+// (rel_type m.replace) whose target is already stored redacted, or whose
+// target still has a tombstone waiting for it, is stored stripped and
+// redacted the same way (the tombstone is only peeked at, not consumed).
+// Conversely, when a redacted target is stored via its tombstone, the edits
+// that were stored before the redaction arrived are stripped in the same
+// transaction too.
 func (s *Store) PutEvent(ctx context.Context, evt *Event) (inserted bool, err error) {
 	err = s.DB.DoTxn(ctx, nil, func(ctx context.Context) error {
 		inserted, err = s.putEvent(ctx, evt)
@@ -111,6 +117,28 @@ func (s *Store) putEvent(ctx context.Context, evt *Event) (bool, error) {
 	if found {
 		evt.Redacted = true
 		evt.Content = RedactedContent(evt.Content)
+		// The target's edit may already be stored (it arrived before the
+		// redaction did): strip it in the same transaction.
+		if err := s.redactStoredEdits(ctx, evt.ID); err != nil {
+			return false, err
+		}
+	} else if evt.RelType == "m.replace" {
+		// An edit of a target that is already stored redacted, or whose
+		// redaction arrived before it, is redacted content itself. The
+		// tombstone is only peeked at here: it stays for the target,
+		// whose own insert consumes it.
+		var targetRedacted bool
+		err = s.DB.QueryRow(ctx, `
+			SELECT EXISTS(SELECT 1 FROM event WHERE id = $1 AND redacted = 1)
+				OR EXISTS(SELECT 1 FROM redaction_tombstone WHERE event_id = $1)
+		`, evt.RelatesTo).Scan(&targetRedacted)
+		if err != nil {
+			return false, err
+		}
+		if targetRedacted {
+			evt.Redacted = true
+			evt.Content = RedactedContent(evt.Content)
+		}
 	}
 	res, err := s.DB.Exec(ctx, `
 		INSERT INTO event (id, room_id, sender, type, state_key, content, timestamp, stream_order, status, error_code, redacted, relates_to, rel_type)
@@ -278,6 +306,24 @@ func (s *Store) TakeTombstone(ctx context.Context, target id.EventID) (bool, err
 	}
 	n, err := res.RowsAffected()
 	return n > 0, err
+}
+
+// redactStoredEdits strips and redacts the m.replace rows already stored for
+// target, for when the target itself is only now stored redacted (its
+// redaction arrived first). Called inside putEvent's transaction.
+func (s *Store) redactStoredEdits(ctx context.Context, target id.EventID) error {
+	edits, err := s.ListReplacements(ctx, target)
+	if err != nil {
+		return err
+	}
+	for _, edit := range edits {
+		edit.Redacted = true
+		edit.Content = RedactedContent(edit.Content)
+		if _, err := s.putEvent(ctx, edit); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // MediaRefCount counts the non-redacted events whose content references mxc:
