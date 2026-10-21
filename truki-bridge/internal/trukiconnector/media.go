@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -200,6 +201,67 @@ func (i *intent) DownloadMediaToFile(ctx context.Context, uri id.ContentURIStrin
 	}
 	if err := callback(tmp); err != nil {
 		return bridgev2.CallbackError{Type: "read", Wrapped: err}
+	}
+	return nil
+}
+
+// contentURIs lists the media content URIs raw references: the event's own
+// media (url, or file.url for encrypted media) and its thumbnails.
+func contentURIs(raw json.RawMessage) []id.ContentURIString {
+	var content struct {
+		URL  id.ContentURIString `json:"url"`
+		File *struct {
+			URL id.ContentURIString `json:"url"`
+		} `json:"file"`
+		Info *struct {
+			ThumbnailURL  id.ContentURIString `json:"thumbnail_url"`
+			ThumbnailFile *struct {
+				URL id.ContentURIString `json:"url"`
+			} `json:"thumbnail_file"`
+		} `json:"info"`
+	}
+	if json.Unmarshal(raw, &content) != nil {
+		return nil
+	}
+	var uris []id.ContentURIString
+	add := func(uri id.ContentURIString) {
+		if uri != "" {
+			uris = append(uris, uri)
+		}
+	}
+	add(content.URL)
+	if content.File != nil {
+		add(content.File.URL)
+	}
+	if content.Info != nil {
+		add(content.Info.ThumbnailURL)
+		if content.Info.ThumbnailFile != nil {
+			add(content.Info.ThumbnailFile.URL)
+		}
+	}
+	return uris
+}
+
+// deleteUnreferencedMedia deletes the local file of every URI that no
+// non-redacted event references anymore. A file that is already gone is not
+// an error, and URIs that are not local media (e.g. direct media) are
+// ignored.
+func (c *Connector) deleteUnreferencedMedia(ctx context.Context, uris map[id.ContentURIString]struct{}) error {
+	for uri := range uris {
+		count, err := c.store.MediaRefCount(ctx, uri)
+		if err != nil {
+			return err
+		}
+		if count > 0 {
+			continue
+		}
+		path, err := c.mediaPath(uri)
+		if err != nil {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	return nil
 }

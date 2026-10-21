@@ -43,6 +43,16 @@ CREATE TABLE IF NOT EXISTS member (
     PRIMARY KEY (room_id, user_id)
 );
 
+-- A redaction may arrive before its target event (the redaction is stored
+-- first, or the target is backfilled later): the tombstone makes the target
+-- store redacted when it arrives, consuming the tombstone in the same
+-- transaction.
+CREATE TABLE IF NOT EXISTS redaction_tombstone (
+    event_id TEXT PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
 -- Full-text index over event bodies. External-content FTS5 table: the indexed
 -- text lives in event (content->>'body'), only the index is stored here.
 CREATE VIRTUAL TABLE IF NOT EXISTS event_fts USING fts5(

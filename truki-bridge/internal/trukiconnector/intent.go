@@ -172,39 +172,42 @@ func (c *Connector) storeAndPush(ctx context.Context, row *store.Event) (*store.
 	return stored, true, nil
 }
 
-// redactedContent strips content down to its relation: the body, media and
-// everything else is dropped, so a redacted message no longer reaches the
-// client or the full-text index. m.relates_to is kept so the client can still
-// tell which message a redacted reaction or edit belonged to.
-func redactedContent(raw json.RawMessage) json.RawMessage {
-	var fields map[string]json.RawMessage
-	out := map[string]json.RawMessage{}
-	if json.Unmarshal(raw, &fields) == nil {
-		if rel, ok := fields["m.relates_to"]; ok {
-			out["m.relates_to"] = rel
-		}
-	}
-	stripped, err := json.Marshal(out)
-	if err != nil {
-		return json.RawMessage(`{}`)
-	}
-	return stripped
-}
-
-// markRedacted flags the target of a redaction, strips its content and
-// pushes it again.
+// markRedacted flags the target of a redaction, strips its content and the
+// content of its edits, frees the media no event references anymore, and
+// pushes the stripped rows again. A target that is not stored yet (the
+// redaction arrived first) gets a tombstone, so the late target stores
+// redacted when it arrives.
 func (c *Connector) markRedacted(ctx context.Context, room id.RoomID, target id.EventID) error {
 	ev, err := c.store.GetEvent(ctx, target)
-	if err != nil || ev == nil || ev.RoomID != room || ev.Redacted {
+	if err != nil {
 		return err
 	}
-	ev.Redacted = true
-	ev.Content = redactedContent(ev.Content)
-	if _, err := c.store.PutEvent(ctx, ev); err != nil {
+	if ev == nil {
+		return c.store.AddTombstone(ctx, room, target)
+	}
+	if ev.RoomID != room || ev.Redacted {
+		return nil
+	}
+	edits, err := c.store.ListReplacements(ctx, target)
+	if err != nil {
 		return err
 	}
-	c.sink.Message(ev)
-	return nil
+	rows := append([]*store.Event{ev}, edits...)
+	uris := map[id.ContentURIString]struct{}{}
+	for _, row := range rows {
+		for _, uri := range contentURIs(row.Content) {
+			uris[uri] = struct{}{}
+		}
+	}
+	for _, row := range rows {
+		row.Redacted = true
+		row.Content = store.RedactedContent(row.Content)
+		if _, err := c.store.PutEvent(ctx, row); err != nil {
+			return err
+		}
+		c.sink.Message(row)
+	}
+	return c.deleteUnreferencedMedia(ctx, uris)
 }
 
 func (i *intent) SendMessage(ctx context.Context, room id.RoomID, evtType event.Type, content *event.Content, extra *bridgev2.MatrixSendExtra) (*mautrix.RespSendEvent, error) {

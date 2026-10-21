@@ -61,6 +61,25 @@ func (evt *Event) Scan(row dbutil.Scannable) (*Event, error) {
 // (PutEventsBefore) while every stream order stays positive.
 const FirstStreamOrder int64 = 1 << 40
 
+// RedactedContent strips content down to its relation: the body, media and
+// everything else is dropped, so a redacted message no longer reaches the
+// client or the full-text index. m.relates_to is kept so the client can still
+// tell which message a redacted reaction or edit belonged to.
+func RedactedContent(raw json.RawMessage) json.RawMessage {
+	var fields map[string]json.RawMessage
+	out := map[string]json.RawMessage{}
+	if json.Unmarshal(raw, &fields) == nil {
+		if rel, ok := fields["m.relates_to"]; ok {
+			out["m.relates_to"] = rel
+		}
+	}
+	stripped, err := json.Marshal(out)
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return stripped
+}
+
 // PutEvent upserts an event by its ID and reports whether a new row was
 // inserted (false when the event already existed). If StreamOrder is 0, it is
 // assigned as max(stream_order)+1 for the event's room, or FirstStreamOrder
@@ -72,7 +91,27 @@ const FirstStreamOrder int64 = 1 << 40
 // a non-empty status or error_code with an empty one, and never un-redacts it.
 // The content of an already redacted event is never replaced, so a replayed
 // message cannot bring back the body its redaction removed.
+//
+// When the event was redacted before it was first stored, a tombstone is
+// waiting for it: the tombstone is consumed and the event stored redacted
+// with its content stripped, both in the same transaction.
 func (s *Store) PutEvent(ctx context.Context, evt *Event) (inserted bool, err error) {
+	err = s.DB.DoTxn(ctx, nil, func(ctx context.Context) error {
+		inserted, err = s.putEvent(ctx, evt)
+		return err
+	})
+	return inserted, err
+}
+
+func (s *Store) putEvent(ctx context.Context, evt *Event) (bool, error) {
+	found, err := s.TakeTombstone(ctx, evt.ID)
+	if err != nil {
+		return false, err
+	}
+	if found {
+		evt.Redacted = true
+		evt.Content = RedactedContent(evt.Content)
+	}
 	res, err := s.DB.Exec(ctx, `
 		INSERT INTO event (id, room_id, sender, type, state_key, content, timestamp, stream_order, status, error_code, redacted, relates_to, rel_type)
 		VALUES ($1, $2, $3, $4, $5, $6, $7,
@@ -215,4 +254,55 @@ func (s *Store) SetEventStatus(ctx context.Context, eventID id.EventID, status, 
 		UPDATE event SET status = $1, error_code = $2 WHERE id = $3
 	`, status, errCode, eventID)
 	return err
+}
+
+// AddTombstone records that target was redacted before it was stored, so a
+// later PutEvent of target stores it redacted.
+func (s *Store) AddTombstone(ctx context.Context, room id.RoomID, target id.EventID) error {
+	_, err := s.DB.Exec(ctx, `
+		INSERT OR REPLACE INTO redaction_tombstone (event_id, room_id, created_at)
+		VALUES ($1, $2, $3)
+	`, target, room, time.Now().UnixMilli())
+	return err
+}
+
+// TakeTombstone removes target's tombstone, if any, and reports whether one
+// was found. PutEvent calls this inside the insert transaction, so a target
+// can never be stored unredacted next to a tombstone that names it.
+func (s *Store) TakeTombstone(ctx context.Context, target id.EventID) (bool, error) {
+	res, err := s.DB.Exec(ctx, `
+		DELETE FROM redaction_tombstone WHERE event_id = $1
+	`, target)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// MediaRefCount counts the non-redacted events whose content references mxc:
+// the event's own media (url, or file.url for encrypted media) and its
+// thumbnails. When it drops to zero no stored event uses the file anymore.
+func (s *Store) MediaRefCount(ctx context.Context, mxc id.ContentURIString) (int, error) {
+	var count int
+	err := s.DB.QueryRow(ctx, `
+		SELECT COUNT(*) FROM event
+		WHERE redacted = 0 AND (
+			json_extract(content, '$.url') = $1
+			OR json_extract(content, '$.file.url') = $1
+			OR json_extract(content, '$.info.thumbnail_url') = $1
+			OR json_extract(content, '$.info.thumbnail_file.url') = $1
+		)
+	`, string(mxc)).Scan(&count)
+	return count, err
+}
+
+// ListReplacements returns the non-redacted m.replace edits of target, the
+// rows whose content a redaction of target strips too.
+func (s *Store) ListReplacements(ctx context.Context, target id.EventID) ([]*Event, error) {
+	return s.events.QueryMany(ctx, `
+		SELECT `+eventColumns+` FROM event
+		WHERE relates_to = $1 AND rel_type = 'm.replace' AND redacted = 0
+		ORDER BY stream_order
+	`, target)
 }
