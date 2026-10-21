@@ -1,0 +1,6 @@
+# Copyright 2026 Truki
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# Staged by scripts/truki-build-bridge.mjs; never commit the binary.
+*
+!.gitignore

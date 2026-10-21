@@ -103,6 +103,7 @@
     "build:styles:tailwind": "tailwindcss -i ./stylesheets/tailwind-config.css -o ./stylesheets/tailwind.css",
     "build:styles:sass:prod": "pnpm run build:styles:sass --style=compressed",
     "build:styles:tailwind:prod": "pnpm run build:styles:tailwind --minify",
+    "build:truki-bridge": "node scripts/truki-build-bridge.mjs",
     "build:electron": "cross-env NODE_OPTIONS='--import=tsx' electron-builder --config.extraMetadata.environment=$SIGNAL_ENV",
     "build:release": "cross-env SIGNAL_ENV=production pnpm run build:electron --config.directories.output=release",
     "build:release:mas": "pnpm run build:release --mac mas --universal",
@@ -470,6 +471,15 @@
       ],
       "asarUnpack": [
         "build/icons/win/icon.ico"
+      ],
+      "extraResources": [
+        {
+          "from": "build/truki-bridge",
+          "to": "",
+          "filter": [
+            "truki-bridge.exe"
+          ]
+        }
       ]
     },
     "nsis": {
