@@ -11,6 +11,7 @@ import { assert } from 'chai';
 import {
   TrukiBridgeSupervisor,
   getTrukiBridgeBinaryPath,
+  handleTrukiBridgeIpcRequest,
   resolveTrukiMediaPath,
   shouldDelayQuitForBridge,
   toTrukiBridgeIpcResult,
@@ -350,6 +351,96 @@ describe('TrukiBridgeSupervisor', () => {
     assert.strictEqual(spawnCalls.length, 1);
     assert.deepEqual(await supervisor.request('echo', { still: 'up' }), {
       still: 'up',
+    });
+  });
+
+  it('ignores JSON lines that are not objects', async () => {
+    const supervisor = make();
+    await supervisor.setEnabledNetworks(['signal']);
+    await supervisor.request('junk');
+    assert.deepEqual(await supervisor.request('echo', { after: 'junk' }), {
+      after: 'junk',
+    });
+    assert.strictEqual(supervisor.state, 'running');
+    assert.strictEqual(spawnCalls.length, 1);
+  });
+
+  describe('handleTrukiBridgeIpcRequest', () => {
+    const attachments = [{ path: '/etc/passwd', mimeType: 'text/plain' }];
+
+    it('refuses messages.send with attachments from the renderer', async () => {
+      const supervisor = make();
+      await supervisor.setEnabledNetworks(['signal']);
+      const error = await rejection(
+        handleTrukiBridgeIpcRequest(supervisor, 'messages.send', {
+          chatId: 'c',
+          text: 'hi',
+          attachments,
+        })
+      );
+      assert.instanceOf(error, TrukiBridgeError);
+      assert.strictEqual(error.code, 'INVALID_INPUT');
+      assert.include(
+        error.message,
+        'attachments over IPC are not supported yet'
+      );
+
+      // Nothing reaches the bridge, whatever form the attachments take.
+      const forwarded: Array<string> = [];
+      const stub = {
+        request: async <T>(method: string): Promise<T> => {
+          forwarded.push(method);
+          return undefined as T;
+        },
+      };
+      for (const bad of [attachments, 'x', { path: '/etc/passwd' }]) {
+        // eslint-disable-next-line no-await-in-loop
+        const refused = await rejection(
+          handleTrukiBridgeIpcRequest(stub, 'messages.send', {
+            chatId: 'c',
+            attachments: bad,
+          })
+        );
+        assert.strictEqual((refused as TrukiBridgeError).code, 'INVALID_INPUT');
+      }
+      assert.deepEqual(forwarded, []);
+    });
+
+    it('forwards messages.send without attachments', async () => {
+      const supervisor = make();
+      await supervisor.setEnabledNetworks(['signal']);
+      for (const params of [
+        { chatId: 'c', text: 'hi' },
+        { chatId: 'c', text: 'hi', attachments: [] },
+      ]) {
+        assert.deepEqual(
+          // eslint-disable-next-line no-await-in-loop
+          await handleTrukiBridgeIpcRequest(
+            supervisor,
+            'messages.send',
+            params
+          ),
+          params
+        );
+      }
+    });
+
+    it('rejects a non-string method', async () => {
+      const supervisor = make();
+      const error = await rejection(
+        handleTrukiBridgeIpcRequest(supervisor, 42, {})
+      );
+      assert.strictEqual((error as TrukiBridgeError).code, 'INVALID_INPUT');
+    });
+
+    it('lets main-process callers send attachments', async () => {
+      const supervisor = make();
+      await supervisor.setEnabledNetworks(['signal']);
+      const params = { chatId: 'c', text: 'hi', attachments };
+      assert.deepEqual(
+        await supervisor.request('messages.send', params),
+        params
+      );
     });
   });
 

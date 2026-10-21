@@ -7,6 +7,8 @@
 //
 // Env: FAKE_PROTOCOL (default 1), FAKE_CRASH_ON_START, FAKE_KEY_OUT (file to
 // write the received dbKey to), FAKE_HANG_SHUTDOWN, FAKE_EVENT_BEFORE_INIT.
+// Methods: echo, echoLater, emit, crash, hang, junk (writes non-object JSON
+// lines), messages.send (echoes its params).
 
 import { createInterface } from 'node:readline';
 import { writeFileSync } from 'node:fs';
@@ -44,6 +46,15 @@ if (process.env.FAKE_TRUKI_BRIDGE === '1') {
         break;
       case 'echo':
         reply(params);
+        break;
+      case 'messages.send':
+        reply(params);
+        break;
+      case 'junk':
+        for (const junk of ['null', '42', '"x"', '[]']) {
+          process.stdout.write(`${junk}\n`);
+        }
+        reply({});
         break;
       case 'echoLater':
         setTimeout(() => reply(params.value), params.ms);

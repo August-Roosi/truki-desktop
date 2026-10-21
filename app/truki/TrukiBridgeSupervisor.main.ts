@@ -114,6 +114,8 @@ export class TrukiBridgeSupervisor {
   #fatal: TrukiBridgeError | undefined;
   // Set by shutdown(): the supervisor never starts the bridge again.
   #closed = false;
+  // A JSON line that is not an object is logged once, without its content.
+  #warnedNonObject = false;
 
   constructor(opts: TrukiBridgeSupervisorOptions) {
     this.#opts = opts;
@@ -391,19 +393,27 @@ export class TrukiBridgeSupervisor {
   }
 
   #onLine(run: Run, line: string): void {
-    let message: {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      log.warn('bridge sent a line that is not JSON');
+      return;
+    }
+    if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      if (!this.#warnedNonObject) {
+        this.#warnedNonObject = true;
+        log.warn('bridge sent a JSON line that is not an object');
+      }
+      return;
+    }
+    const message = parsed as {
       id?: unknown;
       method?: unknown;
       params?: unknown;
       result?: unknown;
       error?: unknown;
     };
-    try {
-      message = JSON.parse(line);
-    } catch {
-      log.warn('bridge sent a line that is not JSON');
-      return;
-    }
 
     if (typeof message.id === 'number') {
       const pending = run.pending.get(message.id);
@@ -532,6 +542,33 @@ export async function toTrukiBridgeIpcResult<T>(
   }
 }
 
+// The renderer's entry point into the bridge. Unlike request(), which trusts
+// its main-process callers, it refuses anything that would make the bridge
+// read a file path chosen by the renderer.
+export async function handleTrukiBridgeIpcRequest(
+  supervisor: Pick<TrukiBridgeSupervisor, 'request'>,
+  method: unknown,
+  params: unknown
+): Promise<unknown> {
+  if (typeof method !== 'string') {
+    throw new TrukiBridgeError('INVALID_INPUT', 'method must be a string');
+  }
+  if (method === 'messages.send') {
+    const attachments = (params as { attachments?: unknown } | null | undefined)
+      ?.attachments;
+    if (
+      attachments != null &&
+      !(Array.isArray(attachments) && attachments.length === 0)
+    ) {
+      throw new TrukiBridgeError(
+        'INVALID_INPUT',
+        'attachments over IPC are not supported yet'
+      );
+    }
+  }
+  return supervisor.request(method, params);
+}
+
 export function getTrukiBridgeBinaryPath({
   isPackaged,
   resourcesPath,
@@ -596,15 +633,9 @@ export function startTrukiBridgeSupervisor(
   ipcMain.handle(
     'truki-bridge:request',
     async (_event, method: unknown, params: unknown) =>
-      toTrukiBridgeIpcResult(async () => {
-        if (typeof method !== 'string') {
-          throw new TrukiBridgeError(
-            'INVALID_INPUT',
-            'method must be a string'
-          );
-        }
-        return supervisor.request(method, params);
-      })
+      toTrukiBridgeIpcResult(async () =>
+        handleTrukiBridgeIpcRequest(supervisor, method, params)
+      )
   );
   ipcMain.handle(
     'truki-bridge:set-enabled-networks',

@@ -31,6 +31,8 @@ if (!existsSync(built)) {
   process.exit(1);
 }
 
+// Copy over the old binary only: build/truki-bridge/.gitignore (tracked) keeps
+// the staged exe out of git, so never empty or recreate this directory.
 const outDir = join(root, 'build', 'truki-bridge');
 mkdirSync(outDir, { recursive: true });
 copyFileSync(built, join(outDir, 'truki-bridge.exe'));
