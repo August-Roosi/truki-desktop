@@ -56,9 +56,23 @@ func bridgeConfig(network, commandPrefix string) *bridgeconfig.BridgeConfig {
 				Enabled:    true,
 				BatchSize:  100,
 				BatchDelay: 20,
-				MaxBatches: -1,
+				MaxBatches: maxBackfillBatches(network),
 			},
 		},
+	}
+}
+
+// maxBackfillBatches caps how many backward-backfill batches the queue
+// fetches per chat (-1: no cap, as in the example config). Meta and
+// Instagram fetch history from servers that flag aggressive clients, so
+// their backfill stops after a few batches; WhatsApp gets its history pushed
+// by the phone and keeps the default.
+func maxBackfillBatches(network string) int {
+	switch network {
+	case "meta", "instagram":
+		return 5
+	default:
+		return -1
 	}
 }
 

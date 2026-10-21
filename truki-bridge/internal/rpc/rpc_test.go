@@ -5,6 +5,7 @@ package rpc
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -395,5 +396,69 @@ func TestClientNotification(t *testing.T) {
 	}
 	if n := echoResultLen(t, resp); n != 1 {
 		t.Fatalf("echo len = %d, want 1", n)
+	}
+}
+
+// lockedBuffer is a bytes.Buffer safe for the concurrent handler goroutines.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// A non-INTERNAL handler error is logged with its method and code only: its
+// message may be the network's login error text. INTERNAL keeps the message.
+func TestHandlerErrorLogging(t *testing.T) {
+	reqR, reqW := io.Pipe()
+	respR, respW := io.Pipe()
+	t.Cleanup(func() {
+		reqW.Close()
+		respR.Close()
+	})
+	var logs lockedBuffer
+	conn := NewConn(reqR, respW, zerolog.New(&logs))
+	out := bufio.NewReader(respR)
+	conn.Handle("login", func(context.Context, json.RawMessage) (any, error) {
+		return nil, &Error{Code: "LOGIN_FAILED", Message: "wrong password hunter2"}
+	})
+	conn.Handle("broken", func(context.Context, json.RawMessage) (any, error) {
+		return nil, fmt.Errorf("disk on fire")
+	})
+	conn.HandleInit(stubInit)
+	startServe(t, conn)
+
+	writeLine(t, reqW, initLine(1, ProtocolVersion))
+	readResponse(t, out)
+
+	writeLine(t, reqW, `{"jsonrpc":"2.0","id":2,"method":"login"}`)
+	resp := readResponse(t, out)
+	wantErrorCode(t, resp, -32000, "LOGIN_FAILED")
+	if resp.Error.Message != "wrong password hunter2" {
+		t.Errorf("response message = %q; the caller still gets it", resp.Error.Message)
+	}
+	writeLine(t, reqW, `{"jsonrpc":"2.0","id":3,"method":"broken"}`)
+	wantErrorCode(t, readResponse(t, out), -32000, "INTERNAL")
+
+	// Each handler logs before its response is written.
+	got := logs.String()
+	if strings.Contains(got, "hunter2") || strings.Contains(got, "wrong password") {
+		t.Errorf("non-INTERNAL error message was logged:\n%s", got)
+	}
+	if !strings.Contains(got, `"method":"login"`) || !strings.Contains(got, `"code":"LOGIN_FAILED"`) {
+		t.Errorf("non-INTERNAL error not logged with method and code:\n%s", got)
+	}
+	if !strings.Contains(got, "disk on fire") {
+		t.Errorf("INTERNAL error logged without its message:\n%s", got)
 	}
 }

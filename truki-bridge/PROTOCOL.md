@@ -16,7 +16,10 @@ they land.
   `params`. The `id` is echoed back verbatim. A message without `id` is a
   notification.
 - **stderr is not part of the protocol.** The bridge logs zerolog JSON
-  lines there; the supervisor may forward or drop them.
+  lines there; the supervisor may forward or drop them. The supervisor
+  forwards them into Truki's main log, which users can upload, so the bridge
+  logs at `info` level. A developer gets `debug` logs (which name contacts'
+  network IDs) by setting `TRUKI_BRIDGE_LOG_LEVEL=debug` in the environment.
 
 ### Stdout guard
 
@@ -144,6 +147,13 @@ the bridge's media store first; `text` becomes the caption of the first
 file, and `replyTo` applies to the first event. A file that cannot be read
 answers `INVALID_INPUT` before anything is sent.
 
+**Attachment paths must originate in Truki's main process.** The bridge
+reads whatever `path` it is given, so the supervisor's renderer IPC channel
+(`truki-bridge:request`) refuses a `messages.send` whose `attachments` is not
+empty, with `INVALID_INPUT` ("attachments over IPC are not supported yet"),
+without forwarding it. Main-process callers of `TrukiBridgeSupervisor.request()`
+may send attachments.
+
 Result: `{eventId}`, the ID of the first event sent.
 
 ### `messages.react`
@@ -157,7 +167,10 @@ answers.
 Params: `{chatId, eventId}`. Deletes the message, or removes the reaction,
 that `eventId` names. Result: `{}`. The redaction is itself an outgoing
 `m.room.redaction` event with a status; when the network accepts it, the
-target is flagged `redacted` and pushed again.
+target is flagged `redacted` and pushed again. A redacted event (from either
+side) keeps only `m.relates_to` of its content (or `{}`): its body and media
+references are gone from the stored event, the search index and every later
+push. (A downloaded media file itself stays in the media store.)
 
 ### `chats.markRead`
 
@@ -351,6 +364,10 @@ Truki codes (`data.code`):
 
 Handler errors that are not `rpc.Error` values are reported as `INTERNAL`
 with the handler's error message and logged.
+
+An `INTERNAL` error is logged with its message. Any other handler error is
+logged with only its method and code, never its message: a `LOGIN_FAILED`
+message is the network's text and may quote what the user typed.
 
 ## Implementation notes
 

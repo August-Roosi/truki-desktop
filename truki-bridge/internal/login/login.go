@@ -343,8 +343,9 @@ func (m *Manager) settle(pr *process, step *bridgev2.LoginStep, err error) (*Ste
 	}
 	if err != nil {
 		m.end(pr, true)
-		// The error text is not logged: it is the network's and may quote
-		// what the user typed.
+		// The error text is not logged, here or by the rpc layer (which logs
+		// only the method and code of a non-INTERNAL error): it is the
+		// network's and may quote what the user typed.
 		m.log.Warn().Str("network", pr.network).Str("process", pr.id).Msg("Login process failed")
 		return nil, &rpc.Error{Code: CodeLoginFailed, Message: err.Error()}
 	}

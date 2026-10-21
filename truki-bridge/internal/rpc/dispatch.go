@@ -128,7 +128,9 @@ func (c *Conn) runHandler(ctx context.Context, req *request) {
 		if e.Code == CodeInternal {
 			c.log.Error().Err(err).Str("method", req.Method).Msg("handler error")
 		} else {
-			c.log.Warn().Err(err).Str("method", req.Method).Msg("handler error")
+			// Only the code: the message of an expected error can carry the
+			// network's text (LOGIN_FAILED) or the user's input.
+			c.log.Warn().Str("method", req.Method).Str("code", e.Code).Msg("handler error")
 		}
 		c.sendError(req.ID, e.Code, jsonRPCCode(e.Code), e.Message)
 		return

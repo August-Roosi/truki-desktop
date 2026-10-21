@@ -17,7 +17,6 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/rs/zerolog"
 	"go.mau.fi/util/dbutil"
 
 	"github.com/August-Roosi/truki-desktop/truki-bridge/internal/api"
@@ -92,7 +91,7 @@ func serve(noise bool) error {
 		printStrayStdout()
 	}
 
-	log := zerolog.New(os.Stderr).With().Timestamp().Logger()
+	log := newLogger(os.Stderr)
 	in := &idReader{r: os.Stdin}
 	out := &exitWriter{w: rpcOut}
 	conn := rpc.NewConn(in, out, log)
