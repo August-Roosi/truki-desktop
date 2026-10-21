@@ -64,10 +64,12 @@ func (s *recordingSink) Notify(string, *bridgev2.DirectNotificationData) {}
 func (s *recordingSink) Typing(id.RoomID, []id.UserID)                   {}
 func (s *recordingSink) Receipt(id.RoomID, id.UserID, id.EventID)        {}
 
-// env is a running bridge with a logged-in fake account and one chat (chat1)
-// holding the friend's message m1 ("tere"), served over a real RPC pipe.
+// env is a running bridge served over a real RPC pipe. newEnv additionally
+// logs in alice and delivers one chat (chat1) holding the friend's message
+// m1 ("tere"); newEnvBase stops before any login.
 type env struct {
 	t     *testing.T
+	h     *host.Host
 	st    *store.Store
 	fake  *faketest.FakeNetwork
 	sink  *recordingSink
@@ -101,7 +103,9 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	}
 }
 
-func newEnv(t *testing.T) *env {
+// newEnvBase returns a served env with no login: the fake network's bridge
+// is not running yet, the state of a fresh data dir.
+func newEnvBase(t *testing.T) *env {
 	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -116,34 +120,14 @@ func newEnv(t *testing.T) *env {
 	}
 	e := &env{t: t, st: st, fake: faketest.NewFakeNetwork(), sink: &recordingSink{}, dir: dir}
 	log := zerolog.New(zerolog.NewTestWriter(t)).Level(zerolog.WarnLevel)
-	h := host.NewHost(db, st, dir, e.sink, []host.NetworkDef{{
+	e.h = host.NewHost(db, st, dir, e.sink, []host.NetworkDef{{
 		ID: "fake", Name: "Fake", Flows: []string{"fake"},
 		New: func() bridgev2.NetworkConnector { return e.fake },
 	}}, log)
-	if err := h.Start(ctx); err != nil {
+	if err := e.h.Start(ctx); err != nil {
 		t.Fatalf("start host: %v", err)
 	}
-	t.Cleanup(h.Stop)
-	br, err := h.Bridge(ctx, "fake")
-	if err != nil {
-		t.Fatalf("bridge: %v", err)
-	}
-	e.login(br, "alice")
-	e.fake.Deliver("alice", "chat1", "m1", "tere")
-	waitFor(t, "incoming message", func() bool {
-		chats, _, _ := st.ListChats(ctx, "", 10)
-		if len(chats) != 1 {
-			return false
-		}
-		e.chat = chats[0].ID
-		events, _ := st.ListEvents(ctx, e.chat, 0, 10)
-		for _, ev := range events {
-			if ev.Type == event.EventMessage.Type && strings.Contains(string(ev.Content), "tere") {
-				e.m1 = ev.ID
-			}
-		}
-		return e.m1 != ""
-	})
+	t.Cleanup(e.h.Stop)
 
 	reqR, reqW := io.Pipe()
 	respR, respW := io.Pipe()
@@ -151,7 +135,7 @@ func newEnv(t *testing.T) *env {
 	conn.HandleInit(func(context.Context, rpc.InitParams) (*rpc.InitResult, error) {
 		return &rpc.InitResult{ProtocolVersion: rpc.ProtocolVersion}, nil
 	})
-	Register(conn, h, st)
+	Register(conn, e.h, st)
 	serveCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { defer close(done); _ = conn.Serve(serveCtx) }()
@@ -165,6 +149,32 @@ func newEnv(t *testing.T) *env {
 	if r := e.call("init", map[string]any{"protocolVersion": rpc.ProtocolVersion, "dataDir": dir, "dbKey": strings.Repeat("0", 64)}); r.Error != nil {
 		t.Fatalf("init failed: %+v", r.Error)
 	}
+	return e
+}
+
+func newEnv(t *testing.T) *env {
+	t.Helper()
+	e := newEnvBase(t)
+	br, err := e.h.Bridge(context.Background(), "fake")
+	if err != nil {
+		t.Fatalf("bridge: %v", err)
+	}
+	e.login(br, "alice")
+	e.fake.Deliver("alice", "chat1", "m1", "tere")
+	waitFor(t, "incoming message", func() bool {
+		chats, _, _ := e.st.ListChats(context.Background(), "", 10)
+		if len(chats) != 1 {
+			return false
+		}
+		e.chat = chats[0].ID
+		events, _ := e.st.ListEvents(context.Background(), e.chat, 0, 10)
+		for _, ev := range events {
+			if ev.Type == event.EventMessage.Type && strings.Contains(string(ev.Content), "tere") {
+				e.m1 = ev.ID
+			}
+		}
+		return e.m1 != ""
+	})
 	return e
 }
 
@@ -504,6 +514,83 @@ func TestNetworksList(t *testing.T) {
 	}
 	if len(nets) != 1 || nets[0].ID != "fake" || nets[0].Name != "Fake" || !nets[0].Enabled {
 		t.Fatalf("networks.list = %+v; want one enabled fake network", nets)
+	}
+}
+
+// enabled asks networks.list whether network reports itself enabled.
+func (e *env) enabled(network string) bool {
+	e.t.Helper()
+	r := e.call("networks.list", nil)
+	if r.Error != nil {
+		e.t.Fatalf("networks.list: %+v", r.Error)
+	}
+	var nets []struct {
+		ID      string `json:"id"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := json.Unmarshal(r.Result, &nets); err != nil {
+		e.t.Fatalf("networks.list result %s: %v", r.Result, err)
+	}
+	for _, n := range nets {
+		if n.ID == network {
+			return n.Enabled
+		}
+	}
+	e.t.Fatalf("network %q missing from networks.list %s", network, r.Result)
+	return false
+}
+
+// TestNetworksListEnabledMeansLoggedIn pins enabled to "the network has at
+// least one logged-in account": a bridge that login flows start lazily, or
+// that keeps running after the last logout, must not count.
+func TestNetworksListEnabledMeansLoggedIn(t *testing.T) {
+	e := newEnvBase(t)
+
+	// login.flows starts the bridge lazily; with no account the network is
+	// still disabled.
+	if r := e.call("login.flows", map[string]any{"network": "fake"}); r.Error != nil {
+		t.Fatalf("login.flows: %+v", r.Error)
+	}
+	if e.enabled("fake") {
+		t.Error("enabled = true after login.flows with no login; want false")
+	}
+
+	// A started-then-cancelled login leaves the bridge running but adds no
+	// account.
+	r := e.call("login.start", map[string]any{"network": "fake", "flowId": "fake"})
+	if r.Error != nil {
+		t.Fatalf("login.start: %+v", r.Error)
+	}
+	var start struct {
+		ProcessID string `json:"processId"`
+	}
+	if err := json.Unmarshal(r.Result, &start); err != nil || start.ProcessID == "" {
+		t.Fatalf("login.start result %s (%v); want a processId", r.Result, err)
+	}
+	if r := e.call("login.cancel", map[string]any{"processId": start.ProcessID}); r.Error != nil {
+		t.Fatalf("login.cancel: %+v", r.Error)
+	}
+	if e.enabled("fake") {
+		t.Error("enabled = true after a cancelled login; want false")
+	}
+
+	// A completed login enables the network.
+	br, err := e.h.Bridge(context.Background(), "fake")
+	if err != nil {
+		t.Fatalf("bridge: %v", err)
+	}
+	e.login(br, "alice")
+	if !e.enabled("fake") {
+		t.Error("enabled = false after a completed login; want true")
+	}
+
+	// Logging the only account out disables it again, even though the
+	// bridge keeps running.
+	if r := e.call("accounts.logout", map[string]any{"network": "fake", "loginId": "alice"}); r.Error != nil {
+		t.Fatalf("accounts.logout: %+v", r.Error)
+	}
+	if e.enabled("fake") {
+		t.Error("enabled = true after logging out the only account; want false")
 	}
 }
 

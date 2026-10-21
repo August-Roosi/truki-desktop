@@ -158,13 +158,19 @@ func clampLimit(n, def, max int) int {
 // registerRead installs the read-side methods: networks.list, chats.list,
 // chats.get, messages.list, media.path and search.
 func registerRead(conn *rpc.Conn, h *host.Host, st *store.Store) {
-	conn.Handle("networks.list", func(_ context.Context, _ json.RawMessage) (any, error) {
+	conn.Handle("networks.list", func(ctx context.Context, _ json.RawMessage) (any, error) {
 		defs := h.Defs()
 		out := make([]networkOut, 0, len(defs))
 		for _, d := range defs {
-			// A network whose bridge is not running has no logins.
-			_, running := h.RunningBridge(d.ID)
-			out = append(out, networkOut{ID: d.ID, Name: d.Name, Enabled: running})
+			// enabled is "has a logged-in account", read from the database
+			// exactly as Host.Start decides which bridges to run — not
+			// "bridge is running", which a login flow starts and a logout
+			// leaves behind.
+			enabled, err := h.HasLogins(ctx, d.ID)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, networkOut{ID: d.ID, Name: d.Name, Enabled: enabled})
 		}
 		return out, nil
 	})

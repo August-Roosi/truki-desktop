@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os/exec"
 	"path/filepath"
@@ -158,6 +159,57 @@ func TestShutdown(t *testing.T) {
 	var result map[string]any
 	if err := json.Unmarshal(down.Result, &result); err != nil || len(result) != 0 {
 		t.Fatalf("shutdown result = %s / %v; want {}", down.Result, err)
+	}
+	if err := c.wait(); err != nil {
+		t.Fatalf("the bridge did not exit 0 after shutdown: %v (stderr %q)", err, c.stderr.String())
+	}
+}
+
+// TestShutdownReplySurvivesConcurrentWrites pins the shutdown reply against
+// the exit race: requests written on the same pipe right after shutdown are
+// dispatched concurrently and answer (or fail on the closed database) while
+// the shutdown handler runs, and none of their writes may make the process
+// exit before the shutdown response line is on the pipe. Run with -count=20
+// to show the ordering is stable.
+func TestShutdownReplySurvivesConcurrentWrites(t *testing.T) {
+	bin := buildFaketest(t)
+	dataDir := t.TempDir()
+
+	c := startChild(t, bin)
+	c.send(initLine(1, dataDir, randomHexKey()))
+	if l := c.line(); l.Error != nil {
+		t.Fatalf("init failed: %+v (stderr %q)", l.Error, c.stderr.String())
+	}
+
+	// One burst: shutdown plus trailing requests dispatched concurrently.
+	burst := `{"jsonrpc":"2.0","id":2,"method":"shutdown"}` + "\n"
+	for i := 3; i <= 7; i++ {
+		burst += fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"chats.list","params":{}}`+"\n", i)
+	}
+	c.send(burst)
+
+	// Every line readable before EOF must include the shutdown's own {}
+	// response; whatever the concurrent requests did to the ordering.
+	sawShutdown := false
+	for c.stdout.Scan() {
+		var l rpcLine
+		if err := json.Unmarshal([]byte(c.stdout.Text()), &l); err != nil {
+			t.Fatalf("bad JSON-RPC line %q: %v", c.stdout.Text(), err)
+		}
+		if string(bytes.TrimSpace(l.ID)) != "2" {
+			continue
+		}
+		sawShutdown = true
+		if l.Error != nil {
+			t.Fatalf("shutdown failed: %+v (stderr %q)", l.Error, c.stderr.String())
+		}
+		var result map[string]any
+		if err := json.Unmarshal(l.Result, &result); err != nil || len(result) != 0 {
+			t.Fatalf("shutdown result = %s / %v; want {} (stderr %q)", l.Result, err, c.stderr.String())
+		}
+	}
+	if !sawShutdown {
+		t.Fatalf("the shutdown response never arrived before EOF (stderr %q)", c.stderr.String())
 	}
 	if err := c.wait(); err != nil {
 		t.Fatalf("the bridge did not exit 0 after shutdown: %v (stderr %q)", err, c.stderr.String())

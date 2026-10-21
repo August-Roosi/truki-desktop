@@ -137,6 +137,22 @@ func (h *Host) Start(ctx context.Context) error {
 	return nil
 }
 
+// HasLogins reports whether network has at least one logged-in account, by
+// reading the database the way Start does when it decides which bridges to
+// run. It is independent of whether the bridge is running: one started
+// lazily by a login flow, or left over after the last logout, does not
+// make it true.
+func (h *Host) HasLogins(ctx context.Context, network string) (bool, error) {
+	if _, ok := h.def(network); !ok {
+		return false, fmt.Errorf("unknown network %q", network)
+	}
+	users, err := h.bridgeDB(network, database.MetaTypes{}).UserLogin.GetAllUserIDsWithLogins(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to check %s logins: %w", network, err)
+	}
+	return len(users) > 0, nil
+}
+
 // Bridge returns the running bridge for network, constructing and starting
 // it on first use.
 func (h *Host) Bridge(ctx context.Context, network string) (*bridgev2.Bridge, error) {
