@@ -8,6 +8,7 @@ import {
   getEmptyState,
   loginStarted,
   messagesLoaded,
+  messagesLoading,
   reducer,
   setTrukiBridgeClientForTesting,
   trukiBridgeEventApplied,
@@ -391,6 +392,107 @@ describe('trukiBridge duck', () => {
         )
       );
       assert.deepEqual(eventIds(state, CHAT_A), ['$1', '$2', '$3']);
+    });
+
+    it('a replace load keeps events pushed while it was in flight', () => {
+      let state = reducer(
+        withChats(CHAT_A),
+        messagesLoaded(
+          CHAT_A,
+          [
+            wireEvent('$2', { streamOrder: 2 }),
+            wireEvent('$t', { sender: ME, status: 'pending', streamOrder: 3 }),
+          ],
+          'replace',
+          false
+        )
+      );
+      state = reducer(state, messagesLoading(CHAT_A));
+      state = apply(
+        state,
+        'event.message',
+        wireEvent('$9', { streamOrder: 9, content: { body: 'new' } })
+      );
+      state = apply(
+        state,
+        'event.message',
+        wireEvent('$t', { sender: ME, status: 'sent', streamOrder: 3 })
+      );
+      state = apply(
+        state,
+        'event.message',
+        wireEvent('$2', {
+          streamOrder: 2,
+          redacted: true,
+          content: { body: 'gone' },
+        })
+      );
+
+      // The page was read before those pushes.
+      state = reducer(
+        state,
+        messagesLoaded(
+          CHAT_A,
+          [
+            wireEvent('$t', { sender: ME, status: 'pending', streamOrder: 3 }),
+            wireEvent('$2', {
+              streamOrder: 2,
+              content: { body: 'secret body' },
+            }),
+            wireEvent('$1'),
+          ],
+          'replace',
+          false
+        )
+      );
+      const { events } = messagesOf(state, CHAT_A);
+      assert.deepEqual(
+        events.map(e => e.id),
+        ['$1', '$2', '$t', '$9']
+      );
+      assert.strictEqual(events[1]?.redacted, true);
+      assert.notInclude(JSON.stringify(state), 'secret body');
+      assert.strictEqual(events[2]?.status, 'sent');
+      assert.isFalse(messagesOf(state, CHAT_A).loading);
+    });
+
+    it('a replace load still drops stale events the page supersedes', () => {
+      let state = reducer(
+        withChats(CHAT_A),
+        messagesLoaded(
+          CHAT_A,
+          [
+            wireEvent('$old', {
+              streamOrder: 2,
+              status: 'pending',
+              sender: ME,
+            }),
+          ],
+          'replace',
+          false
+        )
+      );
+      state = reducer(state, messagesLoading(CHAT_A));
+      state = reducer(
+        state,
+        messagesLoaded(
+          CHAT_A,
+          [
+            wireEvent('$3', { streamOrder: 3 }),
+            wireEvent('$old', { streamOrder: 2, status: 'failed', sender: ME }),
+          ],
+          'replace',
+          false
+        )
+      );
+      const { events } = messagesOf(state, CHAT_A);
+      assert.deepEqual(
+        events.map(e => [e.id, e.status]),
+        [
+          ['$old', 'failed'],
+          ['$3', ''],
+        ]
+      );
     });
 
     it('older pages are prepended without duplicates', () => {

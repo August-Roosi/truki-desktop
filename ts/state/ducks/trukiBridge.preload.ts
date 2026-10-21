@@ -78,6 +78,9 @@ export type TrukiBridgeStateType = ReadonlyDeep<{
         events: ReadonlyArray<TrukiBridgedEvent>;
         hasOlder: boolean;
         loading: boolean;
+        // Ids pushed by event.message while a load was in flight; they are
+        // newer than the page that load returns.
+        receivedWhileLoading?: ReadonlyArray<string>;
       }
     >
   >;
@@ -403,6 +406,10 @@ export function messagesLoaded(
   };
 }
 
+export function messagesLoading(chatId: string): MessagesLoadingAction {
+  return { type: MESSAGES_LOADING, payload: { chatId } };
+}
+
 export function loginStarted(payload: {
   processId: string;
   network: string;
@@ -539,7 +546,7 @@ function loadMessages(
       }
       before = entry.events[0]?.streamOrder;
     }
-    dispatch({ type: MESSAGES_LOADING, payload: { chatId } });
+    dispatch(messagesLoading(chatId));
     const result = await call<unknown>(dispatch, 'messages.list', {
       chatId,
       limit: MESSAGES_PAGE_SIZE,
@@ -819,7 +826,18 @@ function applyMessage(
     messagesByChat: entry
       ? {
           ...state.messagesByChat,
-          [chatId]: { ...entry, events: upsertEvents(entry.events, [event]) },
+          [chatId]: {
+            ...entry,
+            events: upsertEvents(entry.events, [event]),
+            ...(entry.loading
+              ? {
+                  receivedWhileLoading: [
+                    ...(entry.receivedWhileLoading ?? []),
+                    event.id,
+                  ],
+                }
+              : {}),
+          },
         }
       : state.messagesByChat,
   };
@@ -1029,7 +1047,7 @@ export function reducer(
         ...state,
         messagesByChat: {
           ...state.messagesByChat,
-          [chatId]: { ...entry, loading: true },
+          [chatId]: { ...entry, loading: true, receivedWhileLoading: [] },
         },
       };
     }
@@ -1057,16 +1075,22 @@ export function reducer(
         }
       }
       const entry = state.messagesByChat[chatId];
-      const nextEvents =
-        mode === 'replace' || !entry
-          ? upsertEvents([], events)
-          : upsertEvents(entry.events, events);
+      // What the store already holds is at least as new as the page, so it
+      // wins over the page's copy of the same event. A replace drops older
+      // stale events, but keeps those pushed during the load and those
+      // newer than the page.
+      let kept: ReadonlyArray<TrukiBridgedEvent> = entry?.events ?? [];
+      if (mode === 'replace') {
+        const live = new Set(entry?.receivedWhileLoading ?? []);
+        const pageMax = Math.max(-Infinity, ...events.map(e => e.streamOrder));
+        kept = kept.filter(e => live.has(e.id) || e.streamOrder > pageMax);
+      }
       return {
         ...state,
         messagesByChat: {
           ...state.messagesByChat,
           [chatId]: {
-            events: nextEvents,
+            events: upsertEvents(events, kept),
             hasOlder,
             loading: false,
           },

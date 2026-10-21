@@ -246,8 +246,7 @@ Space…" writes the same store.
 | `ts/components/ChatsTab.dom.tsx` | optional `trukiSelectedChatId` + `renderTrukiConversation` props; render it instead of the Signal view when set |
 | `ts/state/smart/ChatsTab.preload.tsx` | pass those props; clear the bridged selection when a Signal chat is selected |
 | `ts/state/reducer.preload.ts` | register the `trukiBridge` duck |
-| `ts/state/actions.preload.ts` | register its actions |
-| `ts/state/getInitialState.preload.ts` | `trukiBridge` empty state in the initial and empty state objects |
+| `ts/state/getInitialState.preload.ts` | `trukiBridge` empty state in `getEmptyState` (the initial state inherits it, and a re-init keeps the existing slice) |
 | `ts/components/Preferences.dom.tsx` | Connected accounts nav item + render branch (optional render prop) |
 | `ts/state/smart/Preferences.preload.tsx` | pass the Connected accounts render prop |
 | `ts/types/Nav.std.ts` | `SettingsPage.TrukiConnectedAccounts` |

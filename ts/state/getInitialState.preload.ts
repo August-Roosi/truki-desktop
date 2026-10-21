@@ -121,7 +121,6 @@ export function getInitialState(
     storyDistributionLists: generateStoryDistributionListState(
       storyDistributionLists
     ),
-    trukiBridge: trukiBridgeEmptyState(),
     user: generateUserState({
       mainWindowStats,
       menuOptions,
