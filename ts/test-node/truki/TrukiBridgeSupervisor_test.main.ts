@@ -12,7 +12,10 @@ import {
   TrukiBridgeSupervisor,
   getTrukiBridgeBinaryPath,
   resolveTrukiMediaPath,
+  shouldDelayQuitForBridge,
+  toTrukiBridgeIpcResult,
 } from '../../../app/truki/TrukiBridgeSupervisor.main.ts';
+import { TrukiBridgeError } from '../../../app/truki/trukiBridgeProtocol.std.ts';
 import type { TrukiBridgeEvent } from '../../../app/truki/trukiBridgeProtocol.std.ts';
 
 const FIXTURE = path.join(__dirname, 'fixtures', 'fakeTrukiBridge.node.mjs');
@@ -327,6 +330,70 @@ describe('TrukiBridgeSupervisor', () => {
     await done;
     assert.strictEqual(at(children, 0).signalCode, 'SIGKILL');
     assert.strictEqual(supervisor.state, 'stopped');
+  });
+
+  it('reserves init and shutdown for the supervisor', async () => {
+    const supervisor = make();
+    await supervisor.setEnabledNetworks(['signal']);
+    await supervisor.request('echo', {});
+
+    for (const [method, params] of [
+      ['shutdown', undefined],
+      ['init', { protocolVersion: 1, dataDir: '/x', dbKey: 'y' }],
+    ] as const) {
+      // eslint-disable-next-line no-await-in-loop
+      const error = await rejection(supervisor.request(method, params));
+      assert.strictEqual((error as { code: string }).code, 'INVALID_INPUT');
+    }
+
+    assert.strictEqual(supervisor.state, 'running');
+    assert.strictEqual(spawnCalls.length, 1);
+    assert.deepEqual(await supervisor.request('echo', { still: 'up' }), {
+      still: 'up',
+    });
+  });
+
+  describe('toTrukiBridgeIpcResult', () => {
+    it('wraps success, bridge errors and unexpected errors', async () => {
+      assert.deepEqual(await toTrukiBridgeIpcResult(async () => 5), {
+        ok: true,
+        value: 5,
+      });
+      assert.deepEqual(
+        await toTrukiBridgeIpcResult(async () => {
+          throw new TrukiBridgeError('NOT_FOUND', 'nope');
+        }),
+        { ok: false, code: 'NOT_FOUND', message: 'nope' }
+      );
+      assert.deepEqual(
+        await toTrukiBridgeIpcResult(async () => {
+          throw new TrukiBridgeError('INTERNAL', 'failed', 'LOGIN_FAILED');
+        }),
+        {
+          ok: false,
+          code: 'INTERNAL',
+          bridgeCode: 'LOGIN_FAILED',
+          message: 'failed',
+        }
+      );
+      assert.deepEqual(
+        await toTrukiBridgeIpcResult(async () => {
+          throw new Error('secret detail');
+        }),
+        { ok: false, code: 'INTERNAL', message: 'internal error' }
+      );
+    });
+  });
+
+  describe('shouldDelayQuitForBridge', () => {
+    it('delays quit once while the bridge may be alive', () => {
+      assert.isTrue(shouldDelayQuitForBridge('running', false));
+      assert.isTrue(shouldDelayQuitForBridge('starting', false));
+      assert.isTrue(shouldDelayQuitForBridge('backoff', false));
+      assert.isFalse(shouldDelayQuitForBridge('running', true));
+      assert.isFalse(shouldDelayQuitForBridge('stopped', false));
+      assert.isFalse(shouldDelayQuitForBridge('gave-up', false));
+    });
   });
 
   describe('getTrukiBridgeBinaryPath', () => {

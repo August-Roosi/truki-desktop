@@ -18,7 +18,10 @@ import {
   TrukiBridgeError,
   isTrukiBridgeErrorCode,
 } from './trukiBridgeProtocol.std.ts';
-import type { TrukiBridgeEvent } from './trukiBridgeProtocol.std.ts';
+import type {
+  TrukiBridgeEvent,
+  TrukiBridgeIpcResult,
+} from './trukiBridgeProtocol.std.ts';
 
 const log = createLogger('TrukiBridge');
 
@@ -147,6 +150,13 @@ export class TrukiBridgeSupervisor {
   }
 
   async request<T>(method: string, params?: unknown): Promise<T> {
+    // The supervisor owns the lifecycle; callers must not drive it.
+    if (method === 'init' || method === 'shutdown') {
+      throw new TrukiBridgeError(
+        'INVALID_INPUT',
+        `${method} is reserved for the supervisor`
+      );
+    }
     if (this.#closed) {
       throw new TrukiBridgeError('BRIDGE_STOPPED', 'bridge was shut down');
     }
@@ -491,6 +501,37 @@ export class TrukiBridgeSupervisor {
   }
 }
 
+export function shouldDelayQuitForBridge(
+  state: TrukiBridgeSupervisorState,
+  alreadyShuttingDown: boolean
+): boolean {
+  return (
+    !alreadyShuttingDown &&
+    (state === 'running' || state === 'starting' || state === 'backoff')
+  );
+}
+
+export async function toTrukiBridgeIpcResult<T>(
+  fn: () => Promise<T>
+): Promise<TrukiBridgeIpcResult<T>> {
+  try {
+    return { ok: true, value: await fn() };
+  } catch (error) {
+    if (error instanceof TrukiBridgeError) {
+      return {
+        ok: false,
+        code: error.code,
+        ...(error.bridgeCode === undefined
+          ? {}
+          : { bridgeCode: error.bridgeCode }),
+        message: error.message,
+      };
+    }
+    log.error('unexpected error in bridge IPC handler', error);
+    return { ok: false, code: 'INTERNAL', message: 'internal error' };
+  }
+}
+
 export function getTrukiBridgeBinaryPath({
   isPackaged,
   resourcesPath,
@@ -552,36 +593,25 @@ export function startTrukiBridgeSupervisor(
     },
   });
 
-  // Errors cross IPC as their message only, so the code goes into it.
-  const rethrow = (error: unknown): never => {
-    if (error instanceof TrukiBridgeError) {
-      throw new Error(`${error.bridgeCode ?? error.code}: ${error.message}`);
-    }
-    throw error;
-  };
-
   ipcMain.handle(
     'truki-bridge:request',
-    async (_event, method: unknown, params: unknown) => {
-      if (typeof method !== 'string') {
-        throw new Error('INVALID_INPUT: method must be a string');
-      }
-      try {
-        return await supervisor.request(method, params);
-      } catch (error) {
-        return rethrow(error);
-      }
-    }
+    async (_event, method: unknown, params: unknown) =>
+      toTrukiBridgeIpcResult(async () => {
+        if (typeof method !== 'string') {
+          throw new TrukiBridgeError(
+            'INVALID_INPUT',
+            'method must be a string'
+          );
+        }
+        return supervisor.request(method, params);
+      })
   );
   ipcMain.handle(
     'truki-bridge:set-enabled-networks',
-    async (_event, ids: unknown) => {
-      try {
+    async (_event, ids: unknown) =>
+      toTrukiBridgeIpcResult(async () => {
         await supervisor.setEnabledNetworks(ids as ReadonlyArray<string>);
-      } catch (error) {
-        rethrow(error);
-      }
-    }
+      })
   );
 
   // truki-media://<host>/<path> stands for mxc://<host>/<path>.
@@ -605,8 +635,19 @@ export function startTrukiBridgeSupervisor(
     }
   });
 
-  app.on('will-quit', () => {
-    void logRejection(supervisor.shutdown(), 'bridge shutdown failed');
+  // will-quit does not wait for async work, so hold the quit until the
+  // bridge has stopped, then quit again.
+  let shuttingDown = false;
+  app.on('will-quit', event => {
+    if (!shouldDelayQuitForBridge(supervisor.state, shuttingDown)) {
+      return;
+    }
+    shuttingDown = true;
+    event.preventDefault();
+    void (async () => {
+      await logRejection(supervisor.shutdown(), 'bridge shutdown failed');
+      app.quit();
+    })();
   });
 
   // Bring the bridge up at launch if a network is already enabled.

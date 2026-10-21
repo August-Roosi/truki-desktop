@@ -57,3 +57,13 @@ export class TrukiBridgeError extends Error {
 }
 
 export type TrukiBridgeEvent = { method: `event.${string}`; params: unknown };
+
+// What the truki-bridge IPC handlers return. They never throw.
+export type TrukiBridgeIpcResult<T> =
+  | { ok: true; value: T }
+  | {
+      ok: false;
+      code: TrukiBridgeErrorCode;
+      bridgeCode?: string;
+      message: string;
+    };
