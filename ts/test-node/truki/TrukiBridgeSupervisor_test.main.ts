@@ -11,6 +11,7 @@ import { assert } from 'chai';
 import {
   TrukiBridgeSupervisor,
   getTrukiBridgeBinaryPath,
+  getTrukiBridgeState,
   handleTrukiBridgeIpcRequest,
   resolveTrukiMediaPath,
   shouldDelayQuitForBridge,
@@ -400,6 +401,20 @@ describe('TrukiBridgeSupervisor', () => {
       await supervisor.setEnabledNetworks(['signal']);
       assert.deepEqual(states, ['unavailable']);
       assert.strictEqual(spawnCalls.length, 0);
+    });
+  });
+
+  describe('getTrukiBridgeState', () => {
+    it('reports unavailable, stopped and running', async () => {
+      assert.strictEqual(
+        getTrukiBridgeState(make({ encryption: false })),
+        'unavailable'
+      );
+      const supervisor = make();
+      assert.strictEqual(getTrukiBridgeState(supervisor), 'stopped');
+      await supervisor.setEnabledNetworks(['signal']);
+      await supervisor.request('echo', {});
+      assert.strictEqual(getTrukiBridgeState(supervisor), 'running');
     });
   });
 

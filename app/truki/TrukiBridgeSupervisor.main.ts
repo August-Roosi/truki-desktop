@@ -585,6 +585,14 @@ export class TrukiBridgeSupervisor {
   }
 }
 
+// What the renderer pulls right after subscribing: the startup emission
+// happens before any window exists.
+export function getTrukiBridgeState(
+  supervisor: Pick<TrukiBridgeSupervisor, 'reportedState'>
+): TrukiSupervisorStateName {
+  return supervisor.reportedState;
+}
+
 export function shouldDelayQuitForBridge(
   state: TrukiBridgeSupervisorState,
   alreadyShuttingDown: boolean
@@ -727,6 +735,9 @@ export function startTrukiBridgeSupervisor(
       })
   );
 
+  ipcMain.handle('truki-bridge:get-state', async () =>
+    toTrukiBridgeIpcResult(async () => getTrukiBridgeState(supervisor))
+  );
   ipcMain.handle(
     'truki-bridge:pick-attachment',
     async (_event, params: unknown) =>

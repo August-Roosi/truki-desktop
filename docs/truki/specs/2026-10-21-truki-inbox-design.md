@@ -254,6 +254,7 @@ Space…" writes the same store.
 | `ts/types/StorageKeys.std.ts` | `trukiSpaceBridgedMembers` and `trukiBridgeBanRiskAccepted` keys |
 | `ts/components/preferences/chatFolders/PreferencesEditChatFoldersPage.dom.tsx` | insert `TrukiSpaceOtherNetworks` |
 | `app/main.main.ts` | `truki-media` entry in `registerSchemesAsPrivileged` |
+| `background.html` | `truki-media:` added to the img-src and media-src CSP lists |
 
 Each is an added branch/line; upstream behaviour is unchanged when there are
 no bridged chats. If implementation needs any file not in this table, stop
