@@ -463,6 +463,10 @@
     "messageformat": "General",
     "description": "Left pane space bar > General, collapsed pill (very small space)"
   },
+  "icu:TrukiFormattedBody--ShowMore": {
+    "messageformat": "Show more",
+    "description": "Truki inbox > message body > button shown when a long message was truncated"
+  },
   "icu:LeftPaneChatFolders__ItemUnreadBadge__AccessibleLabel": {
     "messageformat": "{count, plural, one {# Unread Message} other {# Unread Messages}}",
     "description": "Left Pane > Inbox > Chat List > Chat Folders > Item > Badge Count > Accessible Label"
