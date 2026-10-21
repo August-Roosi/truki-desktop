@@ -252,6 +252,7 @@ import { AttachmentBackupManager } from './jobs/AttachmentBackupManager.preload.
 import { getConversationIdForLogging } from './util/idForLogging.preload.ts';
 import { encryptConversationAttachments } from './util/encryptConversationAttachments.preload.ts';
 import { DataReader, DataWriter } from './sql/Client.preload.ts';
+import { trukiResyncGeneralName } from './util/trukiResyncGeneralName.preload.ts';
 import {
   restoreRemoteConfigFromStorage,
   isEnabled as isRemoteConfigValueEnabled,
@@ -1070,6 +1071,9 @@ async function startApp(): Promise<void> {
         }
         await itemStorage.remove('backupKeyViewed');
       }
+
+      // Truki: keep General's custom name out of Signal's ALL-folder name
+      await trukiResyncGeneralName();
     }
 
     trackHeapSize(() => {

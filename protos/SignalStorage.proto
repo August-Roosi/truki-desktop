@@ -404,6 +404,9 @@ message ChatFolderRecord {
   optional string emoji  = 20001;
   fixed32 color          = 20002;  // 0xAARRGGBB, 0 means unset
   bool hideFromAllChats  = 20003;
+  // General's custom name. Signal requires the ALL folder's `name` to be
+  // empty (libsignal backup validation: AllFolderInvalidName), so it lives here.
+  optional string generalName = 20004;
 }
 
 message NotificationProfile {

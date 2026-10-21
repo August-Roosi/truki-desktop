@@ -10,6 +10,10 @@ import {
 } from '../../services/storageRecordOps.preload.ts';
 import type { ChatFolder, ChatFolderId } from '../../types/ChatFolder.std.ts';
 import { ChatFolderType } from '../../types/ChatFolder.std.ts';
+import {
+  getChatFolderNameFromRecord,
+  getSignalChatFolderName,
+} from '../../types/TrukiGeneralName.std.ts';
 
 const CHAT_FOLDER_ID = '00000000-0000-4000-8000-000000000001' as ChatFolderId;
 
@@ -97,6 +101,73 @@ describe('trukiChatFolderRecord', () => {
       emoji: '💼',
       color: 0xff3a7d44,
       hideFromAllChats: true,
+    });
+  });
+
+  describe('General custom name', () => {
+    it('keeps Signal name empty and syncs the name as generalName', () => {
+      const decoded = encodeAndDecode(
+        toChatFolderRecord(
+          createChatFolder({ folderType: ChatFolderType.ALL, name: 'Home' })
+        )
+      );
+
+      assert.strictEqual(decoded.name, '');
+      assert.strictEqual(decoded.generalName, 'Home');
+      assert.strictEqual(getChatFolderNameFromRecord(decoded), 'Home');
+    });
+
+    it('sends no generalName for an unrenamed General', () => {
+      const decoded = encodeAndDecode(
+        toChatFolderRecord(
+          createChatFolder({ folderType: ChatFolderType.ALL, name: '' })
+        )
+      );
+
+      assert.strictEqual(decoded.name, '');
+      assert.notOk(decoded.generalName);
+      assert.strictEqual(getChatFolderNameFromRecord(decoded), '');
+    });
+
+    it('leaves custom folder names in Signal name', () => {
+      const decoded = encodeAndDecode(
+        toChatFolderRecord(createChatFolder({ name: 'Work' }))
+      );
+
+      assert.strictEqual(decoded.name, 'Work');
+      assert.notOk(decoded.generalName);
+      assert.strictEqual(getChatFolderNameFromRecord(decoded), 'Work');
+    });
+
+    it('reads a pre-fix record with General name in Signal name', () => {
+      const decoded = encodeAndDecode({
+        ...toChatFolderRecord(
+          createChatFolder({ folderType: ChatFolderType.ALL, name: '' })
+        ),
+        name: 'Home',
+        generalName: null,
+      });
+
+      assert.strictEqual(getChatFolderNameFromRecord(decoded), 'Home');
+    });
+  });
+
+  describe('getSignalChatFolderName', () => {
+    it('is always empty for General, as backup validation requires', () => {
+      assert.strictEqual(
+        getSignalChatFolderName({
+          folderType: ChatFolderType.ALL,
+          name: 'Home',
+        }),
+        ''
+      );
+      assert.strictEqual(
+        getSignalChatFolderName({
+          folderType: ChatFolderType.CUSTOM,
+          name: 'Work',
+        }),
+        'Work'
+      );
     });
   });
 });

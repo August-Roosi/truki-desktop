@@ -186,6 +186,7 @@ import {
 import { KIBIBYTE } from '../../types/AttachmentSize.std.ts';
 import { itemStorage } from '../../textsecure/Storage.preload.ts';
 import { ChatFolderType } from '../../types/ChatFolder.std.ts';
+import { getSignalChatFolderName } from '../../types/TrukiGeneralName.std.ts';
 import { expiresTooSoonForBackup } from './util/expiration.std.ts';
 import type { PinnedMessage } from '../../types/PinnedMessage.std.ts';
 import type { ThemeType } from '../../util/preload.preload.ts';
@@ -848,7 +849,7 @@ export class BackupExportStream extends Readable {
       this.#pushFrame({
         chatFolder: {
           id: uuidToBytes(chatFolder.id),
-          name: chatFolder.name,
+          name: getSignalChatFolderName(chatFolder),
           folderType,
           showOnlyUnread: chatFolder.showOnlyUnread,
           showMutedChats: chatFolder.showMutedChats,

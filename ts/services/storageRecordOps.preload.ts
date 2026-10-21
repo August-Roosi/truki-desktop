@@ -114,6 +114,11 @@ import {
 } from '../types/ChatFolder.std.ts';
 import * as TrukiSpaceColor from '../types/TrukiSpaceColor.std.ts';
 import {
+  getChatFolderNameFromRecord,
+  getSignalChatFolderName,
+  getTrukiGeneralName,
+} from '../types/TrukiGeneralName.std.ts';
+import {
   deriveGroupID,
   deriveGroupSecretParams,
 } from '../util/zkgroup.node.ts';
@@ -989,7 +994,7 @@ export function toChatFolderRecord(
 
   return {
     id: uuidToBytes(chatFolder.id),
-    name: chatFolder.name,
+    name: getSignalChatFolderName(chatFolder),
     position: chatFolder.position,
     showOnlyUnread: chatFolder.showOnlyUnread,
     showMutedChats: chatFolder.showMutedChats,
@@ -1002,6 +1007,7 @@ export function toChatFolderRecord(
     emoji: chatFolder.emoji,
     color: TrukiSpaceColor.toWire(chatFolder.color),
     hideFromAllChats: chatFolder.hideFromAllChats,
+    generalName: getTrukiGeneralName(chatFolder),
     $unknown: fromStorageUnknownFields(chatFolder.storageUnknownFields),
   };
 }
@@ -2896,7 +2902,7 @@ export async function mergeChatFolderRecord(
       remoteChatFolderRecord.folderType ??
         Proto.ChatFolderRecord.FolderType.UNKNOWN
     ),
-    name: remoteChatFolderRecord.name ?? '',
+    name: getChatFolderNameFromRecord(remoteChatFolderRecord),
     position: remoteChatFolderRecord.position ?? CHAT_FOLDER_DELETED_POSITION,
     showOnlyUnread: remoteChatFolderRecord.showOnlyUnread ?? false,
     showMutedChats: remoteChatFolderRecord.showMutedChats ?? false,
