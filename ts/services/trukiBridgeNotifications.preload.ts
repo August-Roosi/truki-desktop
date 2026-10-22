@@ -24,7 +24,7 @@ export type TrukiBridgeNotifyDeps = Readonly<{
   getSetting: () => NotificationSettingType;
   isChatMuted: (id: string) => boolean;
   isChatOpenAndFocused: (id: string) => boolean;
-  show: (title: string, body: string, onClick: () => void) => void;
+  show: (chatId: string, title: string, body: string, onClick: () => void) => void;
   selectChat: (id: string) => void;
 }>;
 
@@ -53,13 +53,13 @@ export function handleTrukiBridgeNotify(
 
   switch (setting) {
     case 'message':
-      deps.show(e.senderName, e.preview, onClick);
+      deps.show(e.chatId, e.senderName, e.preview, onClick);
       return;
     case 'name':
-      deps.show(e.senderName, genericText(), onClick);
+      deps.show(e.chatId, e.senderName, genericText(), onClick);
       return;
     case 'count':
-      deps.show(GENERIC_TITLE, genericText(), onClick);
+      deps.show(e.chatId, GENERIC_TITLE, genericText(), onClick);
       return;
     default:
       return;
@@ -79,21 +79,84 @@ export function getTrukiBridgeNotificationSetting(): NotificationSettingType {
 }
 
 type ShowNotificationType = (
+  chatId: string,
   title: string,
   body: string,
   onClick: () => void
 ) => void;
 
+// The part of the DOM Notification the show path uses; tests inject a fake
+// with the same shape.
+export type TrukiBridgeNotification = {
+  close(): void;
+  onclick: Notification['onclick'];
+  onclose: Notification['onclose'];
+};
+
+export type TrukiBridgeNotificationCtor = new (
+  title: string,
+  options: Readonly<{ body: string; tag: string; silent: boolean }>
+) => TrukiBridgeNotification;
+
+// One live notification per chat. The map keeps the reference (Electron's
+// renderer can garbage-collect an unreferenced Notification, after which its
+// onclick stops firing) and lets a new message replace the previous
+// notification instead of stacking another one.
+const notificationsByChat = new Map<string, TrukiBridgeNotification>();
+
+function forgetShown(
+  chatId: string,
+  notification: TrukiBridgeNotification
+): void {
+  if (notificationsByChat.get(chatId) === notification) {
+    notificationsByChat.delete(chatId);
+  }
+}
+
+let notificationCtor: TrukiBridgeNotificationCtor = window.Notification;
+
+export function setTrukiBridgeNotificationCtorForTesting(
+  ctor: TrukiBridgeNotificationCtor | undefined
+): void {
+  for (const notification of notificationsByChat.values()) {
+    notification.close();
+  }
+  notificationsByChat.clear();
+  notificationCtor = ctor ?? window.Notification;
+}
+
+export function getTrukiBridgeShownNotificationsForTesting(): ReadonlyMap<
+  string,
+  TrukiBridgeNotification
+> {
+  return notificationsByChat;
+}
+
 function showDesktopNotification(
+  chatId: string,
   title: string,
   body: string,
   onClick: () => void
 ): void {
-  const notification = new window.Notification(title, { body, silent: false });
+  const existing = notificationsByChat.get(chatId);
+  if (existing) {
+    notificationsByChat.delete(chatId);
+    existing.close();
+  }
+  const notification = new notificationCtor(title, {
+    body,
+    tag: chatId,
+    silent: false,
+  });
   notification.onclick = () => {
     window.focus();
     onClick();
+    forgetShown(chatId, notification);
   };
+  notification.onclose = () => {
+    forgetShown(chatId, notification);
+  };
+  notificationsByChat.set(chatId, notification);
 }
 
 let showNotification: ShowNotificationType = showDesktopNotification;
@@ -125,7 +188,8 @@ export function handleTrukiBridgeNotifyFromDuck(
     isChatOpenAndFocused: chatId =>
       duck.getState().trukiBridge.selectedChatId === chatId &&
       document.hasFocus(),
-    show: (title, body, onClick) => showNotification(title, body, onClick),
+    show: (chatId, title, body, onClick) =>
+      showNotification(chatId, title, body, onClick),
     selectChat: chatId => {
       trukiSelectBridgedChat(chatId, {
         showConversation: duck.showConversation,

@@ -4,7 +4,10 @@
 import { assert } from 'chai';
 
 import {
+  getTrukiBridgeShownNotificationsForTesting,
   handleTrukiBridgeNotify,
+  handleTrukiBridgeNotifyFromDuck,
+  setTrukiBridgeNotificationCtorForTesting,
   setTrukiBridgeShowNotificationForTesting,
 } from '../../services/trukiBridgeNotifications.preload.ts';
 import type { TrukiBridgeNotifyDeps } from '../../services/trukiBridgeNotifications.preload.ts';
@@ -23,7 +26,12 @@ const NOTIFY_EVENT = {
   network: 'whatsapp',
 };
 
-type Shown = Readonly<{ title: string; body: string; onClick: () => void }>;
+type Shown = Readonly<{
+  chatId: string;
+  title: string;
+  body: string;
+  onClick: () => void;
+}>;
 
 function makeDeps(
   overrides: Partial<TrukiBridgeNotifyDeps> = {}
@@ -34,8 +42,13 @@ function makeDeps(
     getSetting: (): NotificationSettingType => 'message',
     isChatMuted: (): boolean => false,
     isChatOpenAndFocused: (): boolean => false,
-    show: (title: string, body: string, onClick: () => void): void => {
-      shown.push({ title, body, onClick });
+    show: (
+      chatId: string,
+      title: string,
+      body: string,
+      onClick: () => void
+    ): void => {
+      shown.push({ chatId, title, body, onClick });
     },
     selectChat: (chatId: string): void => {
       selected.push(chatId);
@@ -65,6 +78,7 @@ describe('trukiBridgeNotifications', () => {
       handleTrukiBridgeNotify(NOTIFY_EVENT, deps);
 
       const notification = onlyShown(shown);
+      assert.strictEqual(notification.chatId, CHAT_A);
       assert.strictEqual(notification.title, 'Alice');
       assert.strictEqual(notification.body, 'hello there');
 
@@ -174,8 +188,8 @@ describe('trukiBridgeNotifications', () => {
 
     beforeEach(() => {
       shown = [];
-      setTrukiBridgeShowNotificationForTesting((title, body, onClick) => {
-        shown.push({ title, body, onClick });
+      setTrukiBridgeShowNotificationForTesting((chatId, title, body, onClick) => {
+        shown.push({ chatId, title, body, onClick });
       });
     });
 
@@ -191,6 +205,7 @@ describe('trukiBridgeNotifications', () => {
       store.dispatch(actions.trukiBridgeEventReceived(notify()));
 
       const notification = onlyShown(shown);
+      assert.strictEqual(notification.chatId, CHAT_A);
       assert.strictEqual(notification.title, 'Alice');
       assert.strictEqual(notification.body, 'hello there');
     });
@@ -233,6 +248,138 @@ describe('trukiBridgeNotifications', () => {
       );
 
       assert.lengthOf(shown, 0);
+    });
+  });
+
+  // The real show path: one live notification per chat, replaced per message.
+  // The Notification constructor is the seam.
+  describe('notification replacement', () => {
+    const CHAT_B = '!b:truki.local';
+
+    const created: Array<FakeNotification> = [];
+
+    class FakeNotification {
+      readonly title: string;
+      readonly options: Readonly<{ body: string; tag: string; silent: boolean }>;
+      closeCount = 0;
+      onclick: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+
+      constructor(
+        title: string,
+        options: Readonly<{ body: string; tag: string; silent: boolean }>
+      ) {
+        this.title = title;
+        this.options = options;
+        created.push(this);
+      }
+
+      close(): void {
+        this.closeCount += 1;
+        this.onclose?.();
+      }
+    }
+
+    let selected: Array<string>;
+
+    function fakeDuck() {
+      return {
+        getState: () => ({ trukiBridge: getEmptyState() }),
+        showConversation: (): undefined => undefined,
+        selectBridgedChat: (chatId: string): void => {
+          selected.push(chatId);
+        },
+      };
+    }
+
+    function notifyChat(chatId: string): void {
+      handleTrukiBridgeNotifyFromDuck(
+        {
+          chatId,
+          senderName: 'Alice',
+          preview: 'hello there',
+          network: 'whatsapp',
+        },
+        fakeDuck()
+      );
+    }
+
+    function onlyCreated(index: number): FakeNotification {
+      const notification = created[index];
+      if (created.length !== index + 1 || !notification) {
+        throw new Error(
+          `expected exactly ${index + 1} notifications, got ${created.length}`
+        );
+      }
+      return notification;
+    }
+
+    // The harness has no focusable window; the real onclick calls focus().
+    const oldFocus = window.focus;
+    let focusCount = 0;
+
+    beforeEach(() => {
+      window.focus = (): void => {
+        focusCount += 1;
+      };
+      created.length = 0;
+      selected = [];
+      setTrukiBridgeNotificationCtorForTesting(FakeNotification);
+    });
+
+    afterEach(() => {
+      window.focus = oldFocus;
+      setTrukiBridgeNotificationCtorForTesting(undefined);
+    });
+
+    it('a second notify for a chat closes the first and keeps one', () => {
+      notifyChat(CHAT_A);
+      const first = onlyCreated(0);
+      notifyChat(CHAT_A);
+      const second = onlyCreated(1);
+
+      assert.strictEqual(first.closeCount, 1);
+      assert.strictEqual(second.closeCount, 0);
+      assert.strictEqual(second.options.tag, CHAT_A);
+
+      const shown = getTrukiBridgeShownNotificationsForTesting();
+      assert.strictEqual(shown.size, 1);
+      assert.strictEqual(shown.get(CHAT_A), second);
+    });
+
+    it('notifies for two chats keep both notifications', () => {
+      notifyChat(CHAT_A);
+      const first = onlyCreated(0);
+      notifyChat(CHAT_B);
+      const second = onlyCreated(1);
+
+      assert.strictEqual(first.closeCount, 0);
+      assert.strictEqual(second.closeCount, 0);
+
+      const shown = getTrukiBridgeShownNotificationsForTesting();
+      assert.strictEqual(shown.size, 2);
+      assert.strictEqual(shown.get(CHAT_A), first);
+      assert.strictEqual(shown.get(CHAT_B), second);
+    });
+
+    it('clicking the notification selects the chat and drops the map entry', () => {
+      notifyChat(CHAT_A);
+      const notification = onlyCreated(0);
+
+      notification.onclick?.();
+
+      assert.strictEqual(focusCount, 1);
+      assert.strictEqual(getTrukiBridgeShownNotificationsForTesting().size, 0);
+      assert.deepEqual(selected, [CHAT_A]);
+    });
+
+    it('closing the notification drops the map entry', () => {
+      notifyChat(CHAT_A);
+      const notification = onlyCreated(0);
+
+      notification.onclose?.();
+
+      assert.strictEqual(getTrukiBridgeShownNotificationsForTesting().size, 0);
     });
   });
 });
