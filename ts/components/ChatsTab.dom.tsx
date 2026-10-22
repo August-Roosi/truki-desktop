@@ -24,6 +24,13 @@ export type ChatsTabProps = Readonly<{
   showWhatsNewModal: () => unknown;
 }>;
 
+// Truki: a selected bridged chat, rendered instead of the splash. Kept out of
+// ChatsTabProps so upstream's story args stay complete.
+export type TrukiChatsTabProps = Readonly<{
+  trukiSelectedChatId?: string;
+  renderTrukiConversation?: (chatId: string) => JSX.Element;
+}>;
+
 export function ChatsTab({
   otherTabsUnreadCount,
   i18n,
@@ -37,7 +44,9 @@ export function ChatsTab({
   renderMiniPlayer,
   selectedConversationId,
   showWhatsNewModal,
-}: ChatsTabProps): JSX.Element {
+  trukiSelectedChatId,
+  renderTrukiConversation,
+}: ChatsTabProps & TrukiChatsTabProps): JSX.Element {
   return (
     <>
       <div id="LeftPane">
@@ -51,6 +60,7 @@ export function ChatsTab({
       </div>
       <div className="Inbox__conversation-stack">
         <div id="toast" />
+        {/* oxlint-disable-next-line no-nested-ternary -- Truki branch below */}
         {selectedConversationId ? (
           <div
             // Use `key` to force the tree to fully re-mount
@@ -59,6 +69,10 @@ export function ChatsTab({
             id={`conversation-${selectedConversationId}`}
           >
             {renderConversationView({ selectedConversationId })}
+          </div>
+        ) : trukiSelectedChatId && renderTrukiConversation ? (
+          <div key={trukiSelectedChatId} className={tw('size-full')}>
+            {renderTrukiConversation(trukiSelectedChatId)}
           </div>
         ) : (
           <div className="Inbox__no-conversation-open">

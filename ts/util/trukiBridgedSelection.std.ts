@@ -15,3 +15,15 @@ export function trukiSelectBridgedChat(
   actions.showConversation({ conversationId: undefined });
   actions.selectBridgedChat(chatId);
 }
+
+// The other direction: once a Signal conversation is selected, the bridged
+// selection is cleared. Called by the chats tab whenever Signal's selected
+// conversation changes.
+export function trukiOnSignalConversationChanged(
+  selectedConversationId: string | undefined,
+  clearBridgedSelection: () => unknown
+): void {
+  if (selectedConversationId !== undefined) {
+    clearBridgedSelection();
+  }
+}

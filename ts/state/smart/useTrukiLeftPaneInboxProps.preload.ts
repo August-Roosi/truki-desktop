@@ -18,7 +18,7 @@ import {
 type ModeSpecificProps = LeftPanePropsType['modeSpecificProps'];
 
 // The bridge's mute is a time; "muted" with no end is the far future.
-const TRUKI_MUTED_FOREVER = Date.UTC(9999, 11, 31);
+export const TRUKI_MUTED_FOREVER = Date.UTC(9999, 11, 31);
 
 // Account states (mautrix bridge states) in which the account's chats cannot
 // send or receive.

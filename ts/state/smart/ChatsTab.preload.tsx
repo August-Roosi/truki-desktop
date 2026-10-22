@@ -28,6 +28,7 @@ import {
 } from '../selectors/conversations.dom.ts';
 import { useChatFolderActions } from '../ducks/chatFolders.preload.ts';
 import { useComposerActions } from '../ducks/composer.preload.ts';
+import { useTrukiChatsTabProps } from './useTrukiChatsTabProps.preload.tsx';
 
 function renderConversationView(props: SmartConversationViewProps) {
   return <SmartConversationView {...props} />;
@@ -61,6 +62,7 @@ export const SmartChatsTab = memo(function SmartChatsTab() {
   const { saveDraftRecordingIfNeeded } = useComposerActions();
 
   const lastOpenedConversationId = useRef<string | undefined>(undefined);
+  const trukiProps = useTrukiChatsTabProps(selectedConversationId);
 
   useEffect(() => {
     if (selectedConversationId !== lastOpenedConversationId.current) {
@@ -144,6 +146,7 @@ export const SmartChatsTab = memo(function SmartChatsTab() {
       renderMiniPlayer={renderMiniPlayer}
       selectedConversationId={selectedConversationId}
       showWhatsNewModal={showWhatsNewModal}
+      {...trukiProps}
     />
   );
 });

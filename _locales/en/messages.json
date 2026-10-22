@@ -475,6 +475,106 @@
     "messageformat": "This account is disconnected",
     "description": "Truki inbox > chat list > bridged chat row > tooltip on the grey network badge when the chat's account is not connected"
   },
+  "icu:TrukiBridgedConversation__Unavailable": {
+    "messageformat": "This chat is no longer available",
+    "description": "Truki inbox > bridged conversation > shown in the conversation panel when the selected bridged chat is gone from the bridge"
+  },
+  "icu:TrukiBridgedConversation__NetworkAccount": {
+    "messageformat": "{network} · {account}",
+    "description": "Truki inbox > bridged conversation > header subtitle: the network name and the name of the account the chat belongs to"
+  },
+  "icu:TrukiBridgedConversation__Deleted": {
+    "messageformat": "This message was deleted",
+    "description": "Truki inbox > bridged conversation > placeholder for a deleted (redacted) message, and in quotes of one"
+  },
+  "icu:TrukiBridgedConversation__Pending": {
+    "messageformat": "Sending",
+    "description": "Truki inbox > bridged conversation > tooltip on the status of an outgoing message that is still being sent"
+  },
+  "icu:TrukiBridgedConversation__Sent": {
+    "messageformat": "Sent",
+    "description": "Truki inbox > bridged conversation > tooltip on the status of an outgoing message the network accepted"
+  },
+  "icu:TrukiBridgedConversation__Failed": {
+    "messageformat": "Not sent",
+    "description": "Truki inbox > bridged conversation > status of an outgoing message the network refused"
+  },
+  "icu:TrukiBridgedConversation__Retry": {
+    "messageformat": "Retry",
+    "description": "Truki inbox > bridged conversation > button under a failed message that sends it again as a new message"
+  },
+  "icu:TrukiBridgedConversation__RateLimited": {
+    "messageformat": "{network} is limiting messages — try again later",
+    "description": "Truki inbox > bridged conversation > shown when the network rate-limited a request; nothing is retried automatically"
+  },
+  "icu:TrukiBridgedConversation__Error": {
+    "messageformat": "Something went wrong. Try again.",
+    "description": "Truki inbox > bridged conversation > shown when a request to the bridge failed for another reason"
+  },
+  "icu:TrukiBridgedConversation__Dismiss": {
+    "messageformat": "Dismiss",
+    "description": "Truki inbox > bridged conversation > label of the button that hides an error banner"
+  },
+  "icu:TrukiBridgedConversation__BridgeDown": {
+    "messageformat": "Other networks are offline. You can't send or receive messages here right now.",
+    "description": "Truki inbox > bridged conversation > banner when the bridge process is not running"
+  },
+  "icu:TrukiBridgedConversation__BridgeStarting": {
+    "messageformat": "Connecting to other networks…",
+    "description": "Truki inbox > bridged conversation > banner while the bridge process is starting"
+  },
+  "icu:TrukiBridgedConversation__Restart": {
+    "messageformat": "Restart",
+    "description": "Truki inbox > bridged conversation > banner button that restarts the bridge process"
+  },
+  "icu:TrukiBridgedConversation__LoggedOut": {
+    "messageformat": "Your {network} account is logged out. Reconnect it to send and receive messages.",
+    "description": "Truki inbox > bridged conversation > banner when the account this chat belongs to is logged out"
+  },
+  "icu:TrukiBridgedConversation__Reconnect": {
+    "messageformat": "Reconnect",
+    "description": "Truki inbox > bridged conversation > banner button that starts logging in to the network again"
+  },
+  "icu:TrukiBridgedConversation__Typing": {
+    "messageformat": "Typing…",
+    "description": "Truki inbox > bridged conversation > shown at the bottom of the timeline while the other person is typing"
+  },
+  "icu:TrukiBridgedConversation__Loading": {
+    "messageformat": "Loading messages",
+    "description": "Truki inbox > bridged conversation > accessible label of the spinner while messages load"
+  },
+  "icu:TrukiBridgedConversation__Empty": {
+    "messageformat": "No messages yet",
+    "description": "Truki inbox > bridged conversation > shown when the chat has no messages"
+  },
+  "icu:TrukiBridgedConversation__You": {
+    "messageformat": "You",
+    "description": "Truki inbox > bridged conversation > author of a quoted message you sent"
+  },
+  "icu:TrukiBridgedConversation__Photo": {
+    "messageformat": "Photo",
+    "description": "Truki inbox > bridged conversation > quote or reply preview of a photo"
+  },
+  "icu:TrukiBridgedConversation__Video": {
+    "messageformat": "Video",
+    "description": "Truki inbox > bridged conversation > quote or reply preview of a video"
+  },
+  "icu:TrukiBridgedConversation__Unsupported": {
+    "messageformat": "This message type isn't supported yet",
+    "description": "Truki inbox > bridged conversation > shown for a message Truki cannot display"
+  },
+  "icu:TrukiBridgedConversation__Send": {
+    "messageformat": "Send",
+    "description": "Truki inbox > bridged conversation > label of the send button in the composer"
+  },
+  "icu:TrukiBridgedConversation__DeleteTitle": {
+    "messageformat": "Delete for everyone?",
+    "description": "Truki inbox > bridged conversation > title of the dialog confirming deleting your message for everyone"
+  },
+  "icu:TrukiBridgedConversation__DeleteDescription": {
+    "messageformat": "This message will be deleted for everyone in this {network} chat.",
+    "description": "Truki inbox > bridged conversation > description in the dialog confirming deleting your message for everyone"
+  },
   "icu:LeftPaneChatFolders__ItemUnreadBadge__AccessibleLabel": {
     "messageformat": "{count, plural, one {# Unread Message} other {# Unread Messages}}",
     "description": "Left Pane > Inbox > Chat List > Chat Folders > Item > Badge Count > Accessible Label"
