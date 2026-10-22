@@ -745,5 +745,58 @@ describe('trukiBridge duck', () => {
         },
       ]);
     });
+
+    function loadFailed(store: ReturnType<typeof makeStore>) {
+      store.dispatch(
+        messagesLoaded(
+          CHAT_A,
+          [
+            wireEvent('$t', {
+              sender: ME,
+              status: 'failed',
+              content: { msgtype: 'm.text', body: 'once' },
+            }),
+          ],
+          'replace',
+          false
+        )
+      );
+    }
+
+    it('retrySend sends a failed event at most once', async () => {
+      const store = makeStore();
+      loadFailed(store);
+      store.dispatch(actions.retrySend(CHAT_A, '$t'));
+      store.dispatch(actions.retrySend(CHAT_A, '$t'));
+      await flush();
+      store.dispatch(actions.retrySend(CHAT_A, '$t'));
+      await flush();
+      assert.lengthOf(
+        calls.filter(c => c.method === 'messages.send'),
+        1
+      );
+      assert.deepEqual(store.state().retriedByChat?.[CHAT_A], ['$t']);
+    });
+
+    it('a retry the bridge refused can be retried again', async () => {
+      respond = () => ({
+        ok: false,
+        code: 'BRIDGE_STOPPED',
+        message: 'bridge is stopped',
+      });
+      const store = makeStore();
+      loadFailed(store);
+      store.dispatch(actions.retrySend(CHAT_A, '$t'));
+      await flush();
+      assert.deepEqual(store.state().retriedByChat?.[CHAT_A], []);
+      respond = () => ({});
+      store.dispatch(actions.retrySend(CHAT_A, '$t'));
+      await flush();
+      assert.lengthOf(
+        calls.filter(c => c.method === 'messages.send'),
+        2
+      );
+      assert.deepEqual(store.state().retriedByChat?.[CHAT_A], ['$t']);
+    });
   });
 });

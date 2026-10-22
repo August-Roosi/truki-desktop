@@ -10,6 +10,7 @@ import type {
   TrukiBridgeEvent,
   TrukiBridgeIpcResult,
   TrukiPickAttachmentParams,
+  TrukiSaveMediaParams,
   TrukiSupervisorStateName,
 } from '../../app/truki/trukiBridgeProtocol.std.ts';
 
@@ -53,6 +54,17 @@ export function trukiPickAttachment(
 ): Promise<TrukiBridgeIpcResult<{ eventId: string } | { cancelled: true }>> {
   return invoke<{ eventId: string } | { cancelled: true }>(
     'truki-bridge:pick-attachment',
+    params
+  );
+}
+
+// Main shows the save dialog and copies the bridge's media file; the renderer
+// names only the media id.
+export function trukiSaveMedia(
+  params: TrukiSaveMediaParams
+): Promise<TrukiBridgeIpcResult<{ saved: true } | { cancelled: true }>> {
+  return invoke<{ saved: true } | { cancelled: true }>(
+    'truki-bridge:save-media',
     params
   );
 }

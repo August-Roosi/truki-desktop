@@ -56,14 +56,19 @@ export type TrukiBridgedMessageBubbleProps = Readonly<{
   onRemoveReaction: (reactionEventId: string) => void;
   onRequestRedact: (eventId: string) => void;
   onRetry: (eventId: string) => void;
+  // This failed message was already sent again (Retry is offered once).
+  isRetried?: boolean;
+  onSaveFile?: (mxc: string, name: string) => void;
 }>;
 
 function MessageContent({
   i18n,
   content,
+  onSaveFile,
 }: Readonly<{
   i18n: LocalizerType;
   content: TrukiTimelineContent;
+  onSaveFile?: (mxc: string, name: string) => void;
 }>): JSX.Element {
   switch (content.kind) {
     case 'text':
@@ -110,8 +115,17 @@ function MessageContent({
           className={tw('my-1 block max-h-[320px] max-w-full rounded-lg')}
         />
       );
-    case 'file':
-      return <FileCard name={content.name} size={content.size} />;
+    case 'file': {
+      const { mxc, name } = content;
+      return (
+        <FileCard
+          name={name}
+          size={content.size}
+          onSave={mxc && onSaveFile ? () => onSaveFile(mxc, name) : undefined}
+          saveLabel={i18n('icu:TrukiBridgedConversation__SaveFile')}
+        />
+      );
+    }
     default:
       return (
         <span className={tw('type-body-medium italic')}>
@@ -124,7 +138,14 @@ function MessageContent({
 function FileCard({
   name,
   size,
-}: Readonly<{ name: string; size?: number }>): JSX.Element {
+  onSave,
+  saveLabel,
+}: Readonly<{
+  name: string;
+  size?: number;
+  onSave?: () => void;
+  saveLabel?: string;
+}>): JSX.Element {
   return (
     <span
       data-testid="TrukiBridgedFileCard"
@@ -141,6 +162,15 @@ function FileCard({
           </span>
         )}
       </span>
+      {onSave && saveLabel && (
+        <AxoIconButton.Root
+          label={saveLabel}
+          variant="implied-secondary"
+          size="sm"
+          symbol="download"
+          onClick={onSave}
+        />
+      )}
     </span>
   );
 }
@@ -160,12 +190,15 @@ export const TrukiBridgedMessageBubble = memo(
     onRemoveReaction,
     onRequestRedact,
     onRetry,
+    isRetried = false,
+    onSaveFile,
   }: TrukiBridgedMessageBubbleProps): JSX.Element {
     const [isPickerOpen, setPickerOpen] = useState(false);
     const now = useNowThatUpdatesEveryMinute();
     const direction = item.outgoing ? 'outgoing' : 'incoming';
     const failed = item.status === 'failed';
-    const canReply = canAct && !item.redacted && !failed && item.status !== 'pending';
+    const canReply =
+      canAct && !item.redacted && !failed && item.status !== 'pending';
     const canDelete =
       canAct &&
       item.outgoing &&
@@ -256,12 +289,20 @@ export const TrukiBridgedMessageBubble = memo(
                   {i18n('icu:TrukiBridgedConversation__Deleted')}
                 </span>
               ) : (
-                <MessageContent i18n={i18n} content={item.content} />
+                <MessageContent
+                  i18n={i18n}
+                  content={item.content}
+                  onSaveFile={onSaveFile}
+                />
               )}
               <AxoMessage.Meta>
-                {item.edited && <span>{i18n('icu:MessageMetadata__edited')}</span>}
+                {item.edited && (
+                  <span>{i18n('icu:MessageMetadata__edited')}</span>
+                )}
                 <AxoMessage.MetaTimestamp
-                  sentAt={SentTimestampMs.fromNumber(Math.max(0, item.timestamp))}
+                  sentAt={SentTimestampMs.fromNumber(
+                    Math.max(0, item.timestamp)
+                  )}
                 >
                   {formatTime(i18n, item.timestamp, now)}
                 </AxoMessage.MetaTimestamp>
@@ -308,7 +349,12 @@ export const TrukiBridgedMessageBubble = memo(
                       })
                     : i18n('icu:TrukiBridgedConversation__Failed')}
                 </span>
-                {canRetry && (
+                {canRetry && isRetried && (
+                  <span data-testid="TrukiBridgedRetried">
+                    {i18n('icu:TrukiBridgedConversation__SentAgain')}
+                  </span>
+                )}
+                {canRetry && !isRetried && (
                   <button
                     type="button"
                     onClick={handleRetry}

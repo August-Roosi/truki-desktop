@@ -228,7 +228,12 @@ describe('trukiBridgedTimeline getTrukiConversationBanner', () => {
       getTrukiConversationBanner('starting', 'CONNECTED'),
       'bridge-starting'
     );
-    for (const state of ['stopped', 'backoff', 'gave-up', 'unavailable'] as const) {
+    for (const state of [
+      'stopped',
+      'backoff',
+      'gave-up',
+      'unavailable',
+    ] as const) {
       assert.strictEqual(
         getTrukiConversationBanner(state, 'LOGGED_OUT'),
         'bridge-down'
@@ -255,7 +260,10 @@ describe('trukiBridgedTimeline getTrukiNetworkDisplayName', () => {
       ]),
       'WhatsApp Business'
     );
-    assert.strictEqual(getTrukiNetworkDisplayName('instagram', []), 'Instagram');
+    assert.strictEqual(
+      getTrukiNetworkDisplayName('instagram', []),
+      'Instagram'
+    );
     assert.strictEqual(getTrukiNetworkDisplayName('signalx', []), 'signalx');
   });
 });

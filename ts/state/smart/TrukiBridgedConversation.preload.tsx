@@ -6,7 +6,10 @@ import type { JSX } from 'react';
 import { useSelector } from 'react-redux';
 
 import { TrukiBridgedConversation } from '../../components/truki/TrukiBridgedConversation.dom.tsx';
-import { trukiPickAttachment } from '../../services/trukiBridgeClient.preload.ts';
+import {
+  trukiPickAttachment,
+  trukiSaveMedia,
+} from '../../services/trukiBridgeClient.preload.ts';
 import { getTrukiNetworkDisplayName } from '../../util/trukiBridgedTimeline.std.ts';
 import {
   TRUKI_BRIDGE_LOCAL_USER,
@@ -18,6 +21,29 @@ import { TRUKI_MUTED_FOREVER } from './useTrukiLeftPaneInboxProps.preload.ts';
 
 const NO_EVENTS = [] as const;
 const NO_USERS = [] as const;
+
+type TrukiErrorShape = { code: string; message: string };
+
+// Asks main to save a received file; a failure is shown like a failed request.
+export async function trukiSaveReceivedFile(
+  mxc: string,
+  suggestedName: string,
+  {
+    save,
+    onError,
+  }: Readonly<{
+    save: typeof trukiSaveMedia;
+    onError: (error: TrukiErrorShape) => void;
+  }>
+): Promise<void> {
+  const result = await save({ mxc, suggestedName });
+  if (!result.ok) {
+    onError({
+      code: result.bridgeCode ?? result.code,
+      message: result.message,
+    });
+  }
+}
 
 export type SmartTrukiBridgedConversationProps = Readonly<{
   chatId: string;
@@ -125,6 +151,13 @@ export const SmartTrukiBridgedConversation = memo(
       [chatId]
     );
 
+    const onSaveMedia = useCallback((mxc: string, suggestedName: string) => {
+      void trukiSaveReceivedFile(mxc, suggestedName, {
+        save: trukiSaveMedia,
+        onError: setAttachError,
+      });
+    }, []);
+
     const onDismissError = useCallback(() => {
       setAttachError(undefined);
       clearBridgeError();
@@ -160,6 +193,8 @@ export const SmartTrukiBridgedConversation = memo(
         onSetMuted={onSetMuted}
         onAttach={onAttach}
         onDismissError={onDismissError}
+        retriedEventIds={bridge.retriedByChat?.[chatId]}
+        onSaveMedia={onSaveMedia}
       />
     );
   }

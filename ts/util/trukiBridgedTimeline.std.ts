@@ -24,7 +24,8 @@ export type TrukiTimelineContent =
       width?: number;
       height?: number;
     }>
-  | Readonly<{ kind: 'file'; name: string; size?: number }>
+  // `mxc` is set only for a bridge media id, which main can save.
+  | Readonly<{ kind: 'file'; name: string; size?: number; mxc?: string }>
   | Readonly<{ kind: 'unsupported' }>;
 
 export type TrukiTimelineReaction = Readonly<{
@@ -131,6 +132,7 @@ export function parseTrukiTimelineContent(
         kind: 'file',
         name: str(content.filename) || body,
         ...(size !== undefined ? { size } : {}),
+        ...(url && mediaUrl ? { mxc: url } : {}),
       };
     }
     default:
@@ -221,7 +223,9 @@ export function buildTrukiTimeline(
   } {
     const edit = latestEdit.get(event.id);
     const newContent =
-      edit && isRecord(edit.content) ? edit.content['m.new_content'] : undefined;
+      edit && isRecord(edit.content)
+        ? edit.content['m.new_content']
+        : undefined;
     if (!event.redacted && edit && isRecord(newContent)) {
       return {
         content: parseTrukiTimelineContent(event.type, newContent),

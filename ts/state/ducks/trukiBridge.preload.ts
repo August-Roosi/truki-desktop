@@ -109,6 +109,8 @@ export type TrukiBridgeStateType = ReadonlyDeep<{
   typingByChat: Readonly<Record<string, ReadonlyArray<string>>>;
   // The last failed request, for the UI to show as a toast.
   lastError: { code: string; message: string; at: number } | undefined;
+  // Failed events the user already retried, per chat; Retry is offered once.
+  retriedByChat?: Readonly<Record<string, ReadonlyArray<string>>>;
 }>;
 
 type MessagesEntry = ReadonlyDeep<
@@ -142,6 +144,8 @@ const MESSAGES_LOAD_FAILED = 'trukiBridge/MESSAGES_LOAD_FAILED';
 const LOGIN_STARTED = 'trukiBridge/LOGIN_STARTED';
 const ERROR_SET = 'trukiBridge/ERROR_SET';
 const ERROR_CLEARED = 'trukiBridge/ERROR_CLEARED';
+const RETRY_STARTED = 'trukiBridge/RETRY_STARTED';
+const RETRY_FAILED = 'trukiBridge/RETRY_FAILED';
 
 type EventAppliedAction = ReadonlyDeep<{
   type: typeof EVENT_APPLIED;
@@ -194,6 +198,10 @@ type ErrorSetAction = ReadonlyDeep<{
   payload: { code: string; message: string; at: number };
 }>;
 type ErrorClearedAction = ReadonlyDeep<{ type: typeof ERROR_CLEARED }>;
+type RetryAction = ReadonlyDeep<{
+  type: typeof RETRY_STARTED | typeof RETRY_FAILED;
+  payload: { chatId: string; eventId: string };
+}>;
 
 export type TrukiBridgeAction = ReadonlyDeep<
   | EventAppliedAction
@@ -209,6 +217,7 @@ export type TrukiBridgeAction = ReadonlyDeep<
   | LoginStartedAction
   | ErrorSetAction
   | ErrorClearedAction
+  | RetryAction
 >;
 
 type TrukiBridgeThunk<R = void> = ReadonlyDeep<
@@ -698,13 +707,19 @@ function setMuted(
   };
 }
 
-// A new send with the failed event's text and reply; never automatic.
+// A new send with the failed event's text and reply; never automatic, and
+// once per failed event (a second Retry while or after it is sent does
+// nothing). A send the bridge refused can be retried again.
 function retrySend(
   chatId: string,
   eventId: string
 ): TrukiBridgeThunk<Promise<void>> {
   return async (dispatch, getState) => {
-    const event = getState().trukiBridge.messagesByChat[chatId]?.events.find(
+    const { trukiBridge } = getState();
+    if (trukiBridge.retriedByChat?.[chatId]?.includes(eventId)) {
+      return;
+    }
+    const event = trukiBridge.messagesByChat[chatId]?.events.find(
       e => e.id === eventId
     );
     const content = event && isRecord(event.content) ? event.content : {};
@@ -725,7 +740,15 @@ function retrySend(
       ? relatesTo['m.in_reply_to']
       : undefined;
     const replyTo = isRecord(inReplyTo) ? str(inReplyTo.event_id) : undefined;
-    await dispatch(sendText(chatId, text, replyTo));
+    dispatch({ type: RETRY_STARTED, payload: { chatId, eventId } });
+    const result = await call(dispatch, 'messages.send', {
+      chatId,
+      text,
+      ...(replyTo ? { replyTo } : {}),
+    });
+    if (result === undefined) {
+      dispatch({ type: RETRY_FAILED, payload: { chatId, eventId } });
+    }
   };
 }
 
@@ -1121,6 +1144,20 @@ export function reducer(
       return state.lastError === undefined
         ? state
         : { ...state, lastError: undefined };
+    case RETRY_STARTED:
+    case RETRY_FAILED: {
+      const { chatId, eventId } = action.payload;
+      const ids = (state.retriedByChat?.[chatId] ?? []).filter(
+        id => id !== eventId
+      );
+      return {
+        ...state,
+        retriedByChat: {
+          ...state.retriedByChat,
+          [chatId]: action.type === RETRY_STARTED ? [...ids, eventId] : ids,
+        },
+      };
+    }
     default:
       return state;
   }

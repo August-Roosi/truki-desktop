@@ -14,6 +14,8 @@ import {
   getTrukiBridgeState,
   handleTrukiBridgeIpcRequest,
   resolveTrukiMediaPath,
+  sanitizeTrukiSaveName,
+  saveTrukiMedia,
   shouldDelayQuitForBridge,
   toTrukiBridgeIpcResult,
 } from '../../../app/truki/TrukiBridgeSupervisor.main.ts';
@@ -506,6 +508,123 @@ describe('TrukiBridgeSupervisor', () => {
       });
       const error = await rejection(supervisor.pickAttachment({ chatId: '' }));
       assert.strictEqual((error as TrukiBridgeError).code, 'INVALID_INPUT');
+    });
+  });
+
+  describe('saveTrukiMedia', () => {
+    const HASH = 'c'.repeat(64);
+    const MXC = `mxc://truki.local/${HASH}`;
+    let mediaDir: string;
+    let outDir: string;
+    let requests: Array<{ method: string; params: unknown }>;
+    let dialogOptions: Array<unknown>;
+
+    function deps(
+      choose: string | undefined,
+      mediaPath = path.join(mediaDir, HASH)
+    ) {
+      return {
+        mediaDir,
+        parent: undefined,
+        request: async <T>(method: string, params: unknown): Promise<T> => {
+          requests.push({ method, params });
+          return { path: mediaPath } as T;
+        },
+        showSaveDialog: (async (options: unknown) => {
+          dialogOptions.push(options);
+          return choose === undefined
+            ? { canceled: true, filePath: '' }
+            : { canceled: false, filePath: choose };
+        }) as unknown as Parameters<typeof saveTrukiMedia>[1]['showSaveDialog'],
+      };
+    }
+
+    beforeEach(() => {
+      mediaDir = path.join(tmp, 'userData', 'truki-bridge', 'media');
+      outDir = path.join(tmp, 'out');
+      fs.mkdirSync(mediaDir, { recursive: true });
+      fs.mkdirSync(outDir, { recursive: true });
+      fs.writeFileSync(path.join(mediaDir, HASH), 'media bytes');
+      requests = [];
+      dialogOptions = [];
+    });
+
+    it('cancel copies nothing', async () => {
+      assert.deepEqual(
+        await saveTrukiMedia(
+          { mxc: MXC, suggestedName: 'a.pdf' },
+          deps(undefined)
+        ),
+        { cancelled: true }
+      );
+      assert.deepEqual(fs.readdirSync(outDir), []);
+    });
+
+    it('copies the media file to the chosen path', async () => {
+      const target = path.join(outDir, 'report.pdf');
+      assert.deepEqual(
+        await saveTrukiMedia(
+          { mxc: MXC, suggestedName: 'report.pdf' },
+          deps(target)
+        ),
+        { saved: true }
+      );
+      assert.strictEqual(fs.readFileSync(target, 'utf8'), 'media bytes');
+      assert.deepEqual(requests, [
+        { method: 'media.path', params: { mediaId: MXC } },
+      ]);
+      assert.deepEqual(dialogOptions, [{ defaultPath: 'report.pdf' }]);
+    });
+
+    it('rejects a crafted mxc without asking the bridge', async () => {
+      for (const mxc of [
+        'mxc://evil.org/abc',
+        `mxc://truki.local/../${HASH}`,
+        '/etc/passwd',
+        42,
+      ]) {
+        // oxlint-disable-next-line no-await-in-loop
+        const error = await rejection(
+          saveTrukiMedia(
+            { mxc } as unknown as { mxc: string },
+            deps(path.join(outDir, 'x'))
+          )
+        );
+        assert.strictEqual((error as TrukiBridgeError).code, 'INVALID_INPUT');
+      }
+      assert.deepEqual(requests, []);
+      assert.deepEqual(fs.readdirSync(outDir), []);
+    });
+
+    it('refuses a bridge path outside the media directory', async () => {
+      const outside = path.join(tmp, 'secret.txt');
+      fs.writeFileSync(outside, 'secret');
+      const error = await rejection(
+        saveTrukiMedia({ mxc: MXC }, deps(path.join(outDir, 'x'), outside))
+      );
+      assert.strictEqual((error as TrukiBridgeError).code, 'NOT_FOUND');
+      assert.deepEqual(dialogOptions, []);
+      assert.deepEqual(fs.readdirSync(outDir), []);
+    });
+
+    it('offers only a plain file name from a crafted name', async () => {
+      const target = path.join(outDir, 'chosen.bin');
+      await saveTrukiMedia(
+        { mxc: MXC, suggestedName: '../../etc/passwd' },
+        deps(target)
+      );
+      assert.deepEqual(dialogOptions, [{ defaultPath: 'passwd' }]);
+      assert.deepEqual(fs.readdirSync(outDir), ['chosen.bin']);
+      assert.isFalse(fs.existsSync(path.join(tmp, 'etc')));
+    });
+
+    it('sanitizes names', () => {
+      assert.strictEqual(sanitizeTrukiSaveName('..\\..\\win.ini'), 'win.ini');
+      assert.strictEqual(sanitizeTrukiSaveName('a\u0000b.txt'), 'ab.txt');
+      assert.strictEqual(sanitizeTrukiSaveName('..'), 'file');
+      assert.strictEqual(sanitizeTrukiSaveName(''), 'file');
+      assert.strictEqual(sanitizeTrukiSaveName(undefined), 'file');
+      assert.lengthOf(sanitizeTrukiSaveName('x'.repeat(500)), 200);
     });
   });
 

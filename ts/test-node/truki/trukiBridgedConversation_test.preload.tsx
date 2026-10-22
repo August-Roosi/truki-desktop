@@ -25,6 +25,7 @@ import type {
 } from '../../state/ducks/trukiBridge.preload.ts';
 import type { StateType } from '../../state/reducer.preload.ts';
 import type { LocalizerType } from '../../types/Util.std.ts';
+import { trukiSaveReceivedFile } from '../../state/smart/TrukiBridgedConversation.preload.tsx';
 import type {
   TrukiBridgeEvent,
   TrukiBridgeIpcResult,
@@ -266,6 +267,77 @@ describe('trukiBridgedConversation view', () => {
       assert.strictEqual(count(markup, 'body of $1'), 1);
       assert.strictEqual(count(markup, 'body of $2'), 1);
     });
+  });
+
+  it('a retried failed event shows "Sent again" instead of Retry', () => {
+    const failedEvent = {
+      id: '$truki-1',
+      chatId: CHAT_A,
+      sender: ME,
+      type: 'm.room.message',
+      content: { msgtype: 'm.text', body: 'hi' },
+      timestamp: 1,
+      streamOrder: 1,
+      status: 'failed' as const,
+      redacted: false,
+    };
+    const before = render({ events: [failedEvent] });
+    assert.include(before, 'icu:TrukiBridgedConversation__Retry');
+    const after = render({
+      events: [failedEvent],
+      retriedEventIds: ['$truki-1'],
+    });
+    assert.notInclude(after, 'icu:TrukiBridgedConversation__Retry');
+    assert.include(after, 'icu:TrukiBridgedConversation__SentAgain');
+  });
+
+  it('a received bridge file has a Save button; others do not', () => {
+    const file = (id: string, url?: string) => ({
+      id,
+      chatId: CHAT_A,
+      sender: THEM,
+      type: 'm.room.message',
+      content: {
+        msgtype: 'm.file',
+        body: `${id}.pdf`,
+        ...(url ? { url } : {}),
+      },
+      timestamp: 1,
+      streamOrder: 1,
+      status: '' as const,
+      redacted: false,
+    });
+    const withSave = render({
+      events: [file('$1', `mxc://truki.local/${'d'.repeat(64)}`)],
+      onSaveMedia: noop,
+    });
+    assert.include(withSave, 'icu:TrukiBridgedConversation__SaveFile');
+    assert.notInclude(
+      render({
+        events: [file('$2', 'mxc://elsewhere.org/x')],
+        onSaveMedia: noop,
+      }),
+      'icu:TrukiBridgedConversation__SaveFile'
+    );
+  });
+
+  it('saving a file asks main with the event mxc and shows a failure', async () => {
+    const mxc = `mxc://truki.local/${'d'.repeat(64)}`;
+    const saved: Array<unknown> = [];
+    const errors: Array<unknown> = [];
+    await trukiSaveReceivedFile(mxc, 'a.pdf', {
+      save: async params => {
+        saved.push(params);
+        return { ok: true, value: { saved: true } };
+      },
+      onError: e => errors.push(e),
+    });
+    await trukiSaveReceivedFile(mxc, 'a.pdf', {
+      save: async () => ({ ok: false, code: 'NOT_FOUND', message: 'gone' }),
+      onError: e => errors.push(e),
+    });
+    assert.deepEqual(saved, [{ mxc, suggestedName: 'a.pdf' }]);
+    assert.deepEqual(errors, [{ code: 'NOT_FOUND', message: 'gone' }]);
   });
 
   it('renders redacted, edited, reply, reactions and media', () => {

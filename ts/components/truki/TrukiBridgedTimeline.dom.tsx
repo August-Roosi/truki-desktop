@@ -31,6 +31,8 @@ export type TrukiBridgedTimelineProps = Readonly<{
   onRemoveReaction: (reactionEventId: string) => void;
   onRequestRedact: (eventId: string) => void;
   onRetry: (eventId: string) => void;
+  retriedEventIds?: ReadonlyArray<string>;
+  onSaveFile?: (mxc: string, name: string) => void;
 }>;
 
 // Newest at the bottom; scrolling to the top loads older pages, keeping the
@@ -52,6 +54,8 @@ export const TrukiBridgedTimeline = memo(function TrukiBridgedTimeline({
   onRemoveReaction,
   onRequestRedact,
   onRetry,
+  retriedEventIds,
+  onSaveFile,
 }: TrukiBridgedTimelineProps): JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
@@ -138,6 +142,8 @@ export const TrukiBridgedTimeline = memo(function TrukiBridgedTimeline({
           onRemoveReaction={onRemoveReaction}
           onRequestRedact={onRequestRedact}
           onRetry={onRetry}
+          isRetried={retriedEventIds?.includes(item.id) ?? false}
+          onSaveFile={onSaveFile}
         />
       ))}
       {isTyping && (

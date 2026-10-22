@@ -571,6 +571,14 @@
     "messageformat": "Delete for everyone?",
     "description": "Truki inbox > bridged conversation > title of the dialog confirming deleting your message for everyone"
   },
+  "icu:TrukiBridgedConversation__SentAgain": {
+    "messageformat": "Sent again",
+    "description": "Truki inbox > bridged conversation > shown under a failed message, in place of Retry, once it was sent again"
+  },
+  "icu:TrukiBridgedConversation__SaveFile": {
+    "messageformat": "Save file",
+    "description": "Truki inbox > bridged conversation > button on a received file that saves it to a location you choose"
+  },
   "icu:TrukiBridgedConversation__DeleteDescription": {
     "messageformat": "This message will be deleted for everyone in this {network} chat.",
     "description": "Truki inbox > bridged conversation > description in the dialog confirming deleting your message for everyone"

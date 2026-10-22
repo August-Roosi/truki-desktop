@@ -17,12 +17,14 @@ import {
   TRUKI_BRIDGE_PROTOCOL_VERSION,
   TrukiBridgeError,
   isTrukiBridgeErrorCode,
+  mxcToTrukiMediaUrl,
   trukiMediaUrlToMxc,
 } from './trukiBridgeProtocol.std.ts';
 import type {
   TrukiBridgeEvent,
   TrukiBridgeIpcResult,
   TrukiPickAttachmentParams,
+  TrukiSaveMediaParams,
   TrukiSupervisorStateName,
 } from './trukiBridgeProtocol.std.ts';
 
@@ -56,6 +58,7 @@ export type TrukiBridgeSupervisorOptions = {
   getParentWindow?: () => BrowserWindow | undefined;
   // Test seams
   showOpenDialog?: typeof dialog.showOpenDialog;
+  showSaveDialog?: typeof dialog.showSaveDialog;
   spawnFn?: typeof spawn;
   now?: () => number;
   setTimeoutFn?: typeof setTimeout;
@@ -264,6 +267,19 @@ export class TrukiBridgeSupervisor {
       text: caption ?? '',
       replyTo,
       attachments: [{ path: filePath, name: basename(filePath) }],
+    });
+  }
+
+  // Saves a received media file where the user chooses (spec §4.2). Only a
+  // bridge media id is accepted; the renderer never names a path.
+  async saveMedia(
+    params: TrukiSaveMediaParams
+  ): Promise<{ saved: true } | { cancelled: true }> {
+    return saveTrukiMedia(params, {
+      mediaDir: join(this.#bridgeDir, 'media'),
+      request: (method, p) => this.request(method, p),
+      showSaveDialog: this.#opts.showSaveDialog ?? dialog.showSaveDialog,
+      parent: this.#opts.getParentWindow?.(),
     });
   }
 
@@ -691,6 +707,65 @@ export function resolveTrukiMediaPath(
   return undefined;
 }
 
+const MAX_SAVE_NAME_LENGTH = 200;
+
+// A plain file name from a name the network supplied: no directories, no
+// control characters, never empty or a dot name.
+export function sanitizeTrukiSaveName(name: unknown): string {
+  const raw = typeof name === 'string' ? name : '';
+  const last = raw.split(/[\\/]/).pop() ?? '';
+  const clean = last.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  if (clean === '' || clean === '.' || clean === '..') {
+    return 'file';
+  }
+  return clean.slice(0, MAX_SAVE_NAME_LENGTH);
+}
+
+export async function saveTrukiMedia(
+  params: TrukiSaveMediaParams,
+  {
+    mediaDir,
+    request,
+    showSaveDialog,
+    parent,
+  }: {
+    mediaDir: string;
+    request: <T>(method: string, params: unknown) => Promise<T>;
+    showSaveDialog: typeof dialog.showSaveDialog;
+    parent: BrowserWindow | undefined;
+  }
+): Promise<{ saved: true } | { cancelled: true }> {
+  const { mxc, suggestedName } = (params ?? {}) as Partial<
+    Record<keyof TrukiSaveMediaParams, unknown>
+  >;
+  const mediaUrl =
+    typeof mxc === 'string' ? mxcToTrukiMediaUrl(mxc) : undefined;
+  const mediaId = mediaUrl ? trukiMediaUrlToMxc(mediaUrl) : undefined;
+  if (
+    !mediaId ||
+    (suggestedName !== undefined && typeof suggestedName !== 'string')
+  ) {
+    throw new TrukiBridgeError('INVALID_INPUT', 'invalid media params');
+  }
+  const { path } = await request<{ path: string }>('media.path', { mediaId });
+  const source =
+    typeof path === 'string'
+      ? resolveTrukiMediaPath(mediaDir, path)
+      : undefined;
+  if (!source) {
+    throw new TrukiBridgeError('NOT_FOUND', 'media file not found');
+  }
+  const options = { defaultPath: sanitizeTrukiSaveName(suggestedName) };
+  const result = parent
+    ? await showSaveDialog(parent, options)
+    : await showSaveDialog(options);
+  if (result.canceled || !result.filePath) {
+    return { cancelled: true };
+  }
+  await fs.promises.copyFile(source, result.filePath);
+  return { saved: true };
+}
+
 export function startTrukiBridgeSupervisor(
   getMainWindow: () => BrowserWindow | undefined
 ): TrukiBridgeSupervisor {
@@ -744,6 +819,11 @@ export function startTrukiBridgeSupervisor(
       toTrukiBridgeIpcResult(async () =>
         supervisor.pickAttachment(params as TrukiPickAttachmentParams)
       )
+  );
+  ipcMain.handle('truki-bridge:save-media', async (_event, params: unknown) =>
+    toTrukiBridgeIpcResult(async () =>
+      supervisor.saveMedia(params as TrukiSaveMediaParams)
+    )
   );
 
   // truki-media://<host>/<path> stands for mxc://<host>/<path>.

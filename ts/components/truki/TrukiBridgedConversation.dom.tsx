@@ -52,6 +52,8 @@ export type TrukiBridgedConversationProps = Readonly<{
     replyTo: string | undefined
   ) => Promise<boolean>;
   onDismissError: () => void;
+  retriedEventIds?: ReadonlyArray<string>;
+  onSaveMedia?: (mxc: string, suggestedName: string) => void;
   // Wired by the connected-accounts work (Task 10); hidden while undefined.
   onRestartBridge?: () => void;
   onReconnectAccount?: () => void;
@@ -82,6 +84,8 @@ export const TrukiBridgedConversation = memo(function TrukiBridgedConversation({
   onSetMuted,
   onAttach,
   onDismissError,
+  retriedEventIds,
+  onSaveMedia,
   onRestartBridge,
   onReconnectAccount,
 }: TrukiBridgedConversationProps): JSX.Element {
@@ -244,6 +248,8 @@ export const TrukiBridgedConversation = memo(function TrukiBridgedConversation({
         onRemoveReaction={handleRemoveReaction}
         onRequestRedact={setRedactId}
         onRetry={onRetry}
+        retriedEventIds={retriedEventIds}
+        onSaveFile={onSaveMedia}
       />
       <TrukiBridgedComposer
         i18n={i18n}

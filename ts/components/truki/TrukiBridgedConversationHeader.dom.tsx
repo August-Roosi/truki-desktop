@@ -39,7 +39,10 @@ export const TrukiBridgedConversationHeader = memo(
         )}
       >
         <div className={tw('flex min-w-0 grow flex-col')}>
-          <h2 className={tw('truncate type-title-small text-primary')} dir="auto">
+          <h2
+            className={tw('truncate type-title-small text-primary')}
+            dir="auto"
+          >
             {name}
           </h2>
           <span className={tw('truncate type-caption text-secondary')}>
@@ -52,7 +55,9 @@ export const TrukiBridgedConversationHeader = memo(
           </span>
         </div>
         <AxoIconButton.Root
-          label={isMuted ? i18n('icu:unmute') : i18n('icu:muteNotificationsTitle')}
+          label={
+            isMuted ? i18n('icu:unmute') : i18n('icu:muteNotificationsTitle')
+          }
           variant="implied-secondary"
           size="md"
           symbol={isMuted ? 'bell-slash' : 'bell'}

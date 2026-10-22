@@ -96,6 +96,11 @@ export type TrukiPickAttachmentParams = {
   replyTo?: string;
 };
 
+export type TrukiSaveMediaParams = {
+  mxc: string;
+  suggestedName?: string;
+};
+
 // What the truki-bridge IPC handlers return. They never throw.
 export type TrukiBridgeIpcResult<T> =
   | { ok: true; value: T }
