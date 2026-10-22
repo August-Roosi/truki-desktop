@@ -75,6 +75,22 @@ async function loadInWindow(win: BrowserWindow, url: string): Promise<void> {
   }
 }
 
+// Electron grants every permission by default, and upstream's deny-by-default
+// handlers cover only the default session. The login window loads remote
+// pages (and their popups), so it gets nothing: no media, location,
+// notifications or openExternal.
+export function denyTrukiLoginPermissions(
+  ses: Pick<
+    Session,
+    'setPermissionRequestHandler' | 'setPermissionCheckHandler'
+  >
+): void {
+  ses.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
+  ses.setPermissionCheckHandler(() => false);
+}
+
 async function readCookie(
   ses: Session,
   { name, domain }: TrukiCookieRequest
@@ -100,6 +116,7 @@ export async function openTrukiCookieLogin(
     );
   }
   const ses = session.fromPartition(partition);
+  denyTrukiLoginPermissions(ses);
   const urlPattern = compilePattern(opts.waitForUrlPattern);
   const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
 

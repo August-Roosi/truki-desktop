@@ -7,6 +7,7 @@ import { BrowserWindow, session } from 'electron';
 import type { BrowserWindowConstructorOptions } from 'electron';
 
 import {
+  denyTrukiLoginPermissions,
   openTrukiCookieLogin,
   parseTrukiCookieLoginStep,
 } from '../../../app/truki/trukiCookieLogin.main.ts';
@@ -197,6 +198,82 @@ describe('TrukiCookieLogin', () => {
     });
     assert.deepEqual(await login, { cookies: { c_user: 'value-of-c_user' } });
     assert.strictEqual(BrowserWindow.getAllWindows().length, before);
+  });
+
+  it('denies every permission to the login page', async () => {
+    const login = openTrukiCookieLogin({
+      url: `${site.origin}/set?cookies=`,
+      requiredCookies: [{ name: 'c_user' }],
+      partition,
+      createWindow,
+      pollIntervalMs: 50,
+    });
+    await waitFor(() => windows.length === 1, 'the login window');
+    const win = windows[0];
+    if (!win) {
+      throw new Error('no window');
+    }
+    await waitFor(
+      () => win.webContents.getURL().includes('/set'),
+      'the set page'
+    );
+    await waitFor(() => !win.webContents.isLoading(), 'the page to load');
+
+    // Permission checks (navigator.permissions.query) go to the session's
+    // check handler.
+    const states = await win.webContents.executeJavaScript(`
+      Promise.all(['geolocation', 'notifications', 'camera', 'microphone']
+        .map(name => navigator.permissions.query({ name })
+          .then(status => name + ':' + status.state)))
+    `);
+    assert.deepEqual(states, [
+      'geolocation:denied',
+      'notifications:denied',
+      'camera:denied',
+      'microphone:denied',
+    ]);
+    // Permission requests go to the request handler. (getUserMedia is not
+    // used: without a capture device it fails before asking.)
+    const requested = await win.webContents.executeJavaScript(
+      'Notification.requestPermission()'
+    );
+    assert.strictEqual(requested, 'denied');
+
+    win.close();
+    assert.deepEqual(await login, { cancelled: true });
+  });
+
+  it('denies openExternal and every other permission by handler', () => {
+    let request:
+      | ((
+          wc: unknown,
+          permission: string,
+          callback: (granted: boolean) => void
+        ) => void)
+      | undefined;
+    let check: ((...args: Array<unknown>) => boolean) | undefined;
+    denyTrukiLoginPermissions({
+      setPermissionRequestHandler: handler => {
+        request = handler as typeof request;
+      },
+      setPermissionCheckHandler: handler => {
+        check = handler as typeof check;
+      },
+    });
+    for (const permission of [
+      'openExternal',
+      'media',
+      'geolocation',
+      'notifications',
+      'clipboard-read',
+    ]) {
+      assert.isFalse(check?.(null, permission, 'https://x/', {}), permission);
+      let granted: boolean | undefined;
+      request?.(null, permission, value => {
+        granted = value;
+      });
+      assert.isFalse(granted, permission);
+    }
   });
 
   it('refuses a persistent partition and a non-web URL', async () => {
