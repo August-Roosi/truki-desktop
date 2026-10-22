@@ -101,6 +101,13 @@ export type TrukiSaveMediaParams = {
   suggestedName?: string;
 };
 
+// truki-bridge:cookie-login. The login URL and cookie names come from the
+// step the bridge reported for the process, not from the caller.
+export type TrukiCookieLoginParams = {
+  processId: string;
+  stepId: string;
+};
+
 // What the truki-bridge IPC handlers return. They never throw.
 export type TrukiBridgeIpcResult<T> =
   | { ok: true; value: T }

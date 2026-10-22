@@ -20,8 +20,13 @@ import {
   mxcToTrukiMediaUrl,
   trukiMediaUrlToMxc,
 } from './trukiBridgeProtocol.std.ts';
+import {
+  collectTrukiStepCookies,
+  openTrukiCookieLogin,
+} from './trukiCookieLogin.main.ts';
 import type {
   TrukiBridgeEvent,
+  TrukiCookieLoginParams,
   TrukiBridgeIpcResult,
   TrukiPickAttachmentParams,
   TrukiSaveMediaParams,
@@ -59,6 +64,7 @@ export type TrukiBridgeSupervisorOptions = {
   // Test seams
   showOpenDialog?: typeof dialog.showOpenDialog;
   showSaveDialog?: typeof dialog.showSaveDialog;
+  openCookieLogin?: typeof openTrukiCookieLogin;
   spawnFn?: typeof spawn;
   now?: () => number;
   setTimeoutFn?: typeof setTimeout;
@@ -67,6 +73,14 @@ export type TrukiBridgeSupervisorOptions = {
 type Pending = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
+};
+
+// The latest step (highest seq) of a login process, as the bridge reported
+// it in a result or an event.login.step.
+type LoginStepRecord = {
+  network: string | undefined;
+  seq: number;
+  step: unknown;
 };
 
 type Run = {
@@ -134,6 +148,8 @@ export class TrukiBridgeSupervisor {
   // around the awaited stop and leave a bridge running unreferenced.
   #lifecycle: Promise<void> = Promise.resolve();
   #restarting: Promise<void> | undefined;
+  readonly #loginSteps = new Map<string, LoginStepRecord>();
+  readonly #cookieLogins = new Set<string>();
 
   constructor(opts: TrukiBridgeSupervisorOptions) {
     this.#opts = opts;
@@ -294,7 +310,153 @@ export class TrukiBridgeSupervisor {
     if (!run || run.stopping || run.closed) {
       throw new TrukiBridgeError('BRIDGE_UNAVAILABLE', 'bridge is not running');
     }
-    return (await this.#send(run, method, params)) as T;
+    let result: unknown;
+    try {
+      result = await this.#send(run, method, params);
+    } catch (error) {
+      this.#noteLoginFailure(method, params, error);
+      throw error;
+    }
+    this.#noteLoginResult(method, params, result);
+    return result as T;
+  }
+
+  #noteLoginStep(
+    processId: unknown,
+    seq: unknown,
+    step: unknown,
+    network?: string
+  ): void {
+    if (typeof processId !== 'string' || typeof seq !== 'number') {
+      return;
+    }
+    const known = this.#loginSteps.get(processId);
+    if (known && known.seq >= seq) {
+      // An event can arrive before the login.start result that names the
+      // network.
+      if (known.network === undefined && network !== undefined) {
+        known.network = network;
+      }
+      return;
+    }
+    if ((step as { type?: unknown } | undefined)?.type === 'complete') {
+      this.#loginSteps.delete(processId);
+      return;
+    }
+    this.#loginSteps.set(processId, {
+      network: network ?? known?.network,
+      seq,
+      step,
+    });
+  }
+
+  #noteLoginResult(method: string, params: unknown, result: unknown): void {
+    const p = params as { processId?: unknown; network?: unknown } | undefined;
+    const r = result as
+      | { processId?: unknown; seq?: unknown; step?: unknown }
+      | undefined;
+    if (method === 'login.start') {
+      const network = typeof p?.network === 'string' ? p.network : undefined;
+      // A second login.start for a network cancels the first process.
+      for (const [id, record] of this.#loginSteps) {
+        if (network !== undefined && record.network === network) {
+          this.#loginSteps.delete(id);
+        }
+      }
+      this.#noteLoginStep(r?.processId, r?.seq, r?.step, network);
+    } else if (method === 'login.submit') {
+      this.#noteLoginStep(p?.processId, r?.seq, r?.step);
+    } else if (method === 'login.cancel' && typeof p?.processId === 'string') {
+      this.#loginSteps.delete(p.processId);
+    }
+  }
+
+  // A submit the network rejected (LOGIN_FAILED) or an unknown process
+  // (NOT_FOUND) means the process is gone.
+  #noteLoginFailure(method: string, params: unknown, error: unknown): void {
+    const processId = (params as { processId?: unknown } | undefined)
+      ?.processId;
+    if (
+      (method === 'login.submit' || method === 'login.cancel') &&
+      typeof processId === 'string' &&
+      error instanceof TrukiBridgeError &&
+      (error.code === 'NOT_FOUND' || error.bridgeCode === 'LOGIN_FAILED')
+    ) {
+      this.#loginSteps.delete(processId);
+    }
+  }
+
+  #noteLoginEvent(params: unknown): void {
+    const p = params as
+      | { processId?: unknown; seq?: unknown; step?: unknown; error?: unknown }
+      | undefined;
+    if (p?.error != null) {
+      if (typeof p.processId === 'string') {
+        this.#loginSteps.delete(p.processId);
+      }
+      return;
+    }
+    this.#noteLoginStep(p?.processId, p?.seq, p?.step);
+  }
+
+  // Runs the login window for the current `cookies` step of a login process
+  // and submits what it collected. The step (and so the URL and cookie
+  // names) comes from what the bridge reported, never from the renderer, and
+  // the result carries no cookie value.
+  async cookieLogin(
+    params: TrukiCookieLoginParams
+  ): Promise<{ cancelled: true } | { step: unknown; seq: number }> {
+    const { processId, stepId } = (params ?? {}) as Partial<
+      Record<keyof TrukiCookieLoginParams, unknown>
+    >;
+    if (
+      typeof processId !== 'string' ||
+      processId === '' ||
+      typeof stepId !== 'string' ||
+      stepId === ''
+    ) {
+      throw new TrukiBridgeError(
+        'INVALID_INPUT',
+        'invalid cookie login params'
+      );
+    }
+    const record = this.#loginSteps.get(processId);
+    if (!record) {
+      throw new TrukiBridgeError('NOT_FOUND', 'unknown login process');
+    }
+    const step = record.step as { type?: unknown; step_id?: unknown };
+    if (step?.step_id !== stepId || step?.type !== 'cookies') {
+      throw new TrukiBridgeError(
+        'INVALID_INPUT',
+        'not the current cookies step'
+      );
+    }
+    if (this.#cookieLogins.has(processId)) {
+      throw new TrukiBridgeError(
+        'INVALID_INPUT',
+        'cookie login is already open'
+      );
+    }
+    this.#cookieLogins.add(processId);
+    try {
+      const collected = await collectTrukiStepCookies(record.step, {
+        open: this.#opts.openCookieLogin ?? openTrukiCookieLogin,
+        parent: this.#opts.getParentWindow?.(),
+      });
+      if ('cancelled' in collected) {
+        return { cancelled: true };
+      }
+      const result = await this.request<{ step?: unknown; seq?: unknown }>(
+        'login.submit',
+        { processId, stepId, cookies: collected.cookies }
+      );
+      return {
+        step: withoutTrukiLoginSecrets(result?.step),
+        seq: typeof result?.seq === 'number' ? result.seq : 0,
+      };
+    } finally {
+      this.#cookieLogins.delete(processId);
+    }
   }
 
   // Shows a file dialog in the main process and hands the chosen path to the
@@ -595,6 +757,9 @@ export class TrukiBridgeSupervisor {
       typeof message.method === 'string' &&
       message.method.startsWith('event.')
     ) {
+      if (message.method === 'event.login.step') {
+        this.#noteLoginEvent(message.params);
+      }
       try {
         this.#opts.onEvent({
           method: message.method as `event.${string}`,
@@ -621,6 +786,8 @@ export class TrukiBridgeSupervisor {
     );
     if (this.#run === run) {
       this.#run = undefined;
+      // The bridge's login processes die with it.
+      this.#loginSteps.clear();
     }
     if (run.stopping) {
       return;
@@ -674,6 +841,18 @@ export class TrukiBridgeSupervisor {
       this.#setState('stopped');
     }
   }
+}
+
+// A step handed back to the renderer must not carry cookie values: a
+// following cookies step may list initial_cookies.
+export function withoutTrukiLoginSecrets(step: unknown): unknown {
+  const cookies = (step as { cookies?: unknown } | null | undefined)?.cookies;
+  if (cookies == null || typeof cookies !== 'object') {
+    return step;
+  }
+  const rest: Record<string, unknown> = { ...cookies };
+  delete rest.initial_cookies;
+  return { ...(step as object), cookies: rest };
 }
 
 // What the renderer pulls right after subscribing: the startup emission
@@ -899,6 +1078,11 @@ export function startTrukiBridgeSupervisor(
       toTrukiBridgeIpcResult(async () =>
         supervisor.pickAttachment(params as TrukiPickAttachmentParams)
       )
+  );
+  ipcMain.handle('truki-bridge:cookie-login', async (_event, params: unknown) =>
+    toTrukiBridgeIpcResult(async () =>
+      supervisor.cookieLogin(params as TrukiCookieLoginParams)
+    )
   );
   ipcMain.handle('truki-bridge:save-media', async (_event, params: unknown) =>
     toTrukiBridgeIpcResult(async () =>

@@ -18,6 +18,7 @@ import {
   saveTrukiMedia,
   shouldDelayQuitForBridge,
   toTrukiBridgeIpcResult,
+  withoutTrukiLoginSecrets,
 } from '../../../app/truki/TrukiBridgeSupervisor.main.ts';
 import {
   TrukiBridgeError,
@@ -85,12 +86,14 @@ describe('TrukiBridgeSupervisor', () => {
     fakeClock = false,
     userData = path.join(tmp, 'userData'),
     showOpenDialog,
+    openCookieLogin,
   }: {
     childEnv?: Record<string, string>;
     encryption?: boolean;
     fakeClock?: boolean;
     userData?: string;
     showOpenDialog?: TrukiBridgeSupervisorOptions['showOpenDialog'];
+    openCookieLogin?: TrukiBridgeSupervisorOptions['openCookieLogin'];
   } = {}): TrukiBridgeSupervisor {
     const spawnFn = ((
       command: string,
@@ -121,6 +124,7 @@ describe('TrukiBridgeSupervisor', () => {
       onEvent: e => events.push(e),
       onStateChange: state => states.push(state),
       ...(showOpenDialog ? { showOpenDialog } : {}),
+      ...(openCookieLogin ? { openCookieLogin } : {}),
       spawnFn,
       ...(fakeClock
         ? {
@@ -668,6 +672,231 @@ describe('TrukiBridgeSupervisor', () => {
       });
       const error = await rejection(supervisor.pickAttachment({ chatId: '' }));
       assert.strictEqual((error as TrukiBridgeError).code, 'INVALID_INPUT');
+    });
+  });
+
+  describe('cookieLogin (TrukiCookieLogin IPC path)', () => {
+    const metaCookiesStep = {
+      type: 'cookies',
+      step_id: 'fi.mau.meta.cookies',
+      txn_id: 't1',
+      instructions: 'Log in',
+      cookies: {
+        url: 'https://www.messenger.com/?no_redirect=true',
+        user_agent: 'TrukiTestAgent/1.0',
+        wait_for_url_pattern: '^https://www\\.messenger\\.com/',
+        fields: ['xs', 'c_user', 'datr'].map(name => ({
+          id: name,
+          required: true,
+          sources: [{ type: 'cookie', name, cookie_domain: 'messenger.com' }],
+        })),
+      },
+    };
+
+    type OpenCall = Parameters<
+      NonNullable<TrukiBridgeSupervisorOptions['openCookieLogin']>
+    >[0];
+
+    async function started({
+      step = metaCookiesStep,
+      result = {
+        cookies: { xs: 'secret-xs', c_user: 'secret-cu', datr: 'secret-d' },
+      },
+      childEnv = {},
+    }: {
+      step?: unknown;
+      result?: Awaited<
+        ReturnType<NonNullable<TrukiBridgeSupervisorOptions['openCookieLogin']>>
+      >;
+      childEnv?: Record<string, string>;
+    } = {}) {
+      const opened: Array<OpenCall> = [];
+      const submitOut = path.join(tmp, 'submit.json');
+      const supervisor = make({
+        childEnv: { FAKE_SUBMIT_OUT: submitOut, ...childEnv },
+        openCookieLogin: async opts => {
+          opened.push(opts);
+          return result;
+        },
+      });
+      await supervisor.setEnabledNetworks(['meta']);
+      await supervisor.request('login.start', {
+        network: 'meta',
+        flowId: 'cookies',
+        fakeStep: step,
+      });
+      return { supervisor, opened, submitOut };
+    }
+
+    it('opens the step from the bridge and submits by field id', async () => {
+      const { supervisor, opened, submitOut } = await started();
+      const result = await toTrukiBridgeIpcResult(async () =>
+        supervisor.cookieLogin({
+          processId: 'p1',
+          stepId: 'fi.mau.meta.cookies',
+          // A renderer cannot choose the URL.
+          url: 'https://evil.example/',
+        } as unknown as { processId: string; stepId: string })
+      );
+      assert.strictEqual(opened.length, 1);
+      const call = at(opened, 0);
+      assert.strictEqual(
+        call.url,
+        'https://www.messenger.com/?no_redirect=true'
+      );
+      assert.strictEqual(call.userAgent, 'TrukiTestAgent/1.0');
+      assert.strictEqual(
+        call.waitForUrlPattern,
+        '^https://www\\.messenger\\.com/'
+      );
+      assert.deepEqual(call.requiredCookies, [
+        { name: 'xs', domain: 'messenger.com' },
+        { name: 'c_user', domain: 'messenger.com' },
+        { name: 'datr', domain: 'messenger.com' },
+      ]);
+      assert.deepEqual(JSON.parse(fs.readFileSync(submitOut, 'utf8')), {
+        processId: 'p1',
+        stepId: 'fi.mau.meta.cookies',
+        cookies: { xs: 'secret-xs', c_user: 'secret-cu', datr: 'secret-d' },
+      });
+      assert.deepEqual(result, {
+        ok: true,
+        value: {
+          step: {
+            type: 'complete',
+            step_id: 'fi.mau.complete',
+            complete: { user_login_id: 'u1' },
+          },
+          seq: 2,
+        },
+      });
+      assert.notInclude(JSON.stringify(result), 'secret');
+    });
+
+    it('returns cancelled and submits nothing when the window is closed', async () => {
+      const { supervisor, submitOut } = await started({
+        result: { cancelled: true },
+      });
+      assert.deepEqual(
+        await supervisor.cookieLogin({
+          processId: 'p1',
+          stepId: 'fi.mau.meta.cookies',
+        }),
+        { cancelled: true }
+      );
+      assert.isFalse(fs.existsSync(submitOut));
+    });
+
+    it('uses a newer step pushed as event.login.step', async () => {
+      const { supervisor, opened } = await started({
+        step: {
+          type: 'display_and_wait',
+          step_id: 'fi.mau.wait',
+          display_and_wait: { type: 'nothing' },
+        },
+      });
+      const early = await toTrukiBridgeIpcResult(async () =>
+        supervisor.cookieLogin({
+          processId: 'p1',
+          stepId: 'fi.mau.meta.cookies',
+        })
+      );
+      assert.include(early, { ok: false, code: 'INVALID_INPUT' });
+      await supervisor.request('emitLoginStep', {
+        processId: 'p1',
+        step: metaCookiesStep,
+        seq: 2,
+      });
+      await supervisor.cookieLogin({
+        processId: 'p1',
+        stepId: 'fi.mau.meta.cookies',
+      });
+      assert.strictEqual(opened.length, 1);
+    });
+
+    it('refuses unknown processes and malformed params', async () => {
+      const { supervisor, opened } = await started();
+      const unknown = await rejection(
+        supervisor.cookieLogin({ processId: 'nope', stepId: 'x' })
+      );
+      assert.strictEqual((unknown as TrukiBridgeError).code, 'NOT_FOUND');
+      const malformed = await rejection(
+        supervisor.cookieLogin({ processId: 'p1' } as unknown as {
+          processId: string;
+          stepId: string;
+        })
+      );
+      assert.strictEqual((malformed as TrukiBridgeError).code, 'INVALID_INPUT');
+      assert.strictEqual(opened.length, 0);
+    });
+
+    it('refuses a required field that is not a cookie', async () => {
+      const { supervisor, opened } = await started({
+        step: {
+          ...metaCookiesStep,
+          cookies: {
+            ...metaCookiesStep.cookies,
+            fields: [
+              {
+                id: 'token',
+                required: true,
+                sources: [{ type: 'local_storage', name: 'token' }],
+              },
+            ],
+          },
+        },
+      });
+      const error = await rejection(
+        supervisor.cookieLogin({
+          processId: 'p1',
+          stepId: 'fi.mau.meta.cookies',
+        })
+      );
+      assert.strictEqual((error as TrukiBridgeError).code, 'INVALID_INPUT');
+      assert.strictEqual(
+        (error as TrukiBridgeError).message,
+        'unsupported login step'
+      );
+      assert.strictEqual(opened.length, 0);
+    });
+
+    it('forgets the process when the network rejects the cookies', async () => {
+      const { supervisor } = await started({
+        childEnv: { FAKE_SUBMIT_FAIL: '1' },
+      });
+      const failed = await toTrukiBridgeIpcResult(async () =>
+        supervisor.cookieLogin({
+          processId: 'p1',
+          stepId: 'fi.mau.meta.cookies',
+        })
+      );
+      assert.deepEqual(failed, {
+        ok: false,
+        code: 'INTERNAL',
+        bridgeCode: 'LOGIN_FAILED',
+        message: 'rejected',
+      });
+      const again = await rejection(
+        supervisor.cookieLogin({
+          processId: 'p1',
+          stepId: 'fi.mau.meta.cookies',
+        })
+      );
+      assert.strictEqual((again as TrukiBridgeError).code, 'NOT_FOUND');
+    });
+
+    it('strips initial cookies from a step handed back', () => {
+      assert.deepEqual(
+        withoutTrukiLoginSecrets({
+          type: 'cookies',
+          cookies: {
+            url: 'https://x/',
+            initial_cookies: [{ name: 'a', value: 'secret' }],
+          },
+        }),
+        { type: 'cookies', cookies: { url: 'https://x/' } }
+      );
+      assert.strictEqual(withoutTrukiLoginSecrets(undefined), undefined);
     });
   });
 

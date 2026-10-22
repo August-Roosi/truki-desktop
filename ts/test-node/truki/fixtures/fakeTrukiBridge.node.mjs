@@ -6,9 +6,13 @@
 // file under ts/test-node.
 //
 // Env: FAKE_PROTOCOL (default 1), FAKE_CRASH_ON_START, FAKE_KEY_OUT (file to
-// write the received dbKey to), FAKE_HANG_SHUTDOWN, FAKE_EVENT_BEFORE_INIT.
+// write the received dbKey to), FAKE_HANG_SHUTDOWN, FAKE_EVENT_BEFORE_INIT,
+// FAKE_SUBMIT_OUT (file to write login.submit params to), FAKE_SUBMIT_FAIL.
 // Methods: echo, echoLater, emit, crash, hang, junk (writes non-object JSON
-// lines), messages.send (echoes its params).
+// lines), messages.send (echoes its params), login.start (answers
+// {processId: params.fakeProcessId ?? 'p1', step: params.fakeStep, seq:
+// params.fakeSeq ?? 1}), login.submit (answers a complete step, seq 2),
+// emitLoginStep (pushes its params as event.login.step).
 
 import { createInterface } from 'node:readline';
 import { writeFileSync } from 'node:fs';
@@ -49,6 +53,42 @@ if (process.env.FAKE_TRUKI_BRIDGE === '1') {
         break;
       case 'messages.send':
         reply(params);
+        break;
+      case 'login.start':
+        reply({
+          processId: params.fakeProcessId ?? 'p1',
+          step: params.fakeStep,
+          seq: params.fakeSeq ?? 1,
+        });
+        break;
+      case 'login.submit':
+        if (process.env.FAKE_SUBMIT_OUT) {
+          writeFileSync(process.env.FAKE_SUBMIT_OUT, JSON.stringify(params));
+        }
+        if (process.env.FAKE_SUBMIT_FAIL === '1') {
+          send({
+            jsonrpc: '2.0',
+            id,
+            error: {
+              code: -32000,
+              message: 'rejected',
+              data: { code: 'LOGIN_FAILED' },
+            },
+          });
+          break;
+        }
+        reply({
+          step: {
+            type: 'complete',
+            step_id: 'fi.mau.complete',
+            complete: { user_login_id: 'u1' },
+          },
+          seq: 2,
+        });
+        break;
+      case 'emitLoginStep':
+        send({ jsonrpc: '2.0', method: 'event.login.step', params });
+        reply({});
         break;
       case 'junk':
         for (const junk of ['null', '42', '"x"', '[]']) {
