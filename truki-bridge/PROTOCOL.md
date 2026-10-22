@@ -97,9 +97,12 @@ logged on stderr, and the bridge keeps serving.
   events changing status.
 - `event.chat`: params are one **chat** object. Pushed whenever a chat row
   changes (name, avatar, unread count, mute, last message).
-- `event.accountState`: params are `{network, loginId, state}` with the
-  same `state` values as `accounts.list`. Pushed for every bridge state
-  change of a login.
+- `event.accountState`: params are `{network, loginId, state, reason?}` with
+  the same `state` values as `accounts.list`. Pushed for every bridge state
+  change of a login. `reason` is the state's error code and message joined
+  as `"<code>: <message>"` (either part alone when the other is empty); it
+  is absent when the state carries neither, and never holds secrets. A
+  global state (the bridge itself, not a login) has an empty `loginId`.
 - `event.notify`: params are `{network, chatId?, senderName?, messageId,
   message}` — a network notification (typically an incoming message for
   a chat the user has not opened). `chatId` and `senderName` are present

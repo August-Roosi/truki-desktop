@@ -128,6 +128,7 @@ export class TrukiBridgeSupervisor {
   // A JSON line that is not an object is logged once, without its content.
   #warnedNonObject = false;
   #lastReportedState: TrukiSupervisorStateName | undefined;
+  #warnedUnavailable = false;
 
   constructor(opts: TrukiBridgeSupervisorOptions) {
     this.#opts = opts;
@@ -158,6 +159,10 @@ export class TrukiBridgeSupervisor {
 
   #reportState(): void {
     const state = this.reportedState;
+    if (state === 'unavailable' && !this.#warnedUnavailable) {
+      this.#warnedUnavailable = true;
+      log.warn('secure storage is not available, the bridge cannot start');
+    }
     if (state === this.#lastReportedState) {
       return;
     }
@@ -190,6 +195,24 @@ export class TrukiBridgeSupervisor {
       return;
     }
     if (this.#canStart() && this.#state === 'stopped') {
+      this.#start();
+    }
+  }
+
+  // Stops the bridge if it runs, forgets earlier crashes (and a give-up),
+  // and starts it again when a network is enabled. The Restart button of
+  // the "Bridges stopped" banner.
+  async restart(): Promise<void> {
+    if (this.#closed) {
+      throw new TrukiBridgeError('BRIDGE_STOPPED', 'bridge was shut down');
+    }
+    await this.#stop();
+    this.#crashTimes = [];
+    this.#fatal = undefined;
+    if (this.#state !== 'stopped') {
+      this.#setState('stopped');
+    }
+    if (this.#enabledNetworks.length > 0 && this.#canStart()) {
       this.#start();
     }
   }
@@ -334,7 +357,17 @@ export class TrukiBridgeSupervisor {
     }
     const hex = randomBytes(32).toString('hex');
     fs.mkdirSync(this.#bridgeDir, { recursive: true });
-    fs.writeFileSync(keyPath, this.#opts.encryptKey(hex), { mode: 0o600 });
+    // Write beside the key and rename over it, so a crash never leaves a
+    // half-written key file. A .tmp left by an earlier crash is overwritten.
+    const tmpPath = `${keyPath}.tmp`;
+    const fd = fs.openSync(tmpPath, 'w', 0o600);
+    try {
+      fs.writeSync(fd, this.#opts.encryptKey(hex));
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmpPath, keyPath);
     return hex;
   }
 
@@ -810,6 +843,11 @@ export function startTrukiBridgeSupervisor(
       })
   );
 
+  ipcMain.handle('truki-bridge:restart', async () =>
+    toTrukiBridgeIpcResult(async () => {
+      await supervisor.restart();
+    })
+  );
   ipcMain.handle('truki-bridge:get-state', async () =>
     toTrukiBridgeIpcResult(async () => getTrukiBridgeState(supervisor))
   );

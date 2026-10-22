@@ -406,6 +406,123 @@ describe('TrukiBridgeSupervisor', () => {
     });
   });
 
+  describe('restart', () => {
+    async function giveUp(supervisor: TrukiBridgeSupervisor): Promise<void> {
+      await supervisor.setEnabledNetworks(['signal']);
+      for (let i = 0; i < 4; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await waitFor(() => timers.length === i + 1, `backoff ${i + 1}`);
+        at(timers, i).fn();
+      }
+      await waitFor(() => supervisor.state === 'gave-up', 'gave-up');
+    }
+
+    it('spawns again from gave-up and reports the transitions', async () => {
+      const supervisor = make({
+        fakeClock: true,
+        childEnv: { FAKE_CRASH_ON_START: '1' },
+      });
+      await giveUp(supervisor);
+      assert.strictEqual(spawnCalls.length, 5);
+      states.length = 0;
+
+      await supervisor.restart();
+      assert.strictEqual(spawnCalls.length, 6);
+      assert.deepEqual(states.slice(0, 2), ['stopped', 'starting']);
+      assert.notInclude(states, 'gave-up');
+    });
+
+    it('resets the crash counter', async () => {
+      const supervisor = make({
+        fakeClock: true,
+        childEnv: { FAKE_CRASH_ON_START: '1' },
+      });
+      await giveUp(supervisor);
+      await supervisor.restart();
+      // One crash after the restart is a first crash again: backoff, not
+      // gave-up.
+      await waitFor(() => supervisor.state === 'backoff', 'backoff');
+      assert.strictEqual(timers[timers.length - 1]?.ms, 1000);
+    });
+
+    it('stops a running bridge and starts a new one', async () => {
+      const supervisor = make();
+      await supervisor.setEnabledNetworks(['signal']);
+      await supervisor.request('echo', {});
+      await supervisor.restart();
+      await supervisor.request('echo', {});
+      assert.strictEqual(spawnCalls.length, 2);
+      assert.strictEqual(supervisor.state, 'running');
+      assert.deepEqual(states, [
+        'stopped',
+        'starting',
+        'running',
+        'stopped',
+        'starting',
+        'running',
+      ]);
+    });
+
+    it('stays stopped when no network is enabled', async () => {
+      const supervisor = make();
+      await supervisor.restart();
+      assert.strictEqual(spawnCalls.length, 0);
+      assert.strictEqual(supervisor.state, 'stopped');
+    });
+
+    it('does not start without secure storage', async () => {
+      const supervisor = make({ encryption: false });
+      await supervisor.setEnabledNetworks(['signal']);
+      await supervisor.restart();
+      assert.strictEqual(spawnCalls.length, 0);
+    });
+  });
+
+  describe('key file', () => {
+    const keyPath = (): string =>
+      path.join(tmp, 'userData', 'truki-bridge', 'truki-bridge.key');
+
+    it('leaves no .tmp file after creating the key', async () => {
+      const supervisor = make();
+      await supervisor.setEnabledNetworks(['signal']);
+      await supervisor.request('echo', {});
+      assert.isTrue(fs.existsSync(keyPath()));
+      assert.isFalse(fs.existsSync(`${keyPath()}.tmp`));
+    });
+
+    it('keeps the old key when a crash left a .tmp behind', async () => {
+      const keyOut1 = path.join(tmp, 'key-out-1');
+      const keyOut2 = path.join(tmp, 'key-out-2');
+      const first = make({ childEnv: { FAKE_KEY_OUT: keyOut1 } });
+      await first.setEnabledNetworks(['signal']);
+      await first.request('echo', {});
+      await first.shutdown();
+      const before = fs.readFileSync(keyPath());
+
+      // A crash between writing the .tmp and renaming it.
+      fs.writeFileSync(`${keyPath()}.tmp`, 'half-written garbage');
+
+      const second = make({ childEnv: { FAKE_KEY_OUT: keyOut2 } });
+      await second.setEnabledNetworks(['signal']);
+      await second.request('echo', {});
+      assert.deepEqual(fs.readFileSync(keyPath()), before);
+      assert.strictEqual(
+        fs.readFileSync(keyOut1, 'utf8'),
+        fs.readFileSync(keyOut2, 'utf8')
+      );
+    });
+
+    it('overwrites a leftover .tmp when there is no key yet', async () => {
+      fs.mkdirSync(path.dirname(keyPath()), { recursive: true });
+      fs.writeFileSync(`${keyPath()}.tmp`, 'half-written garbage');
+      const supervisor = make();
+      await supervisor.setEnabledNetworks(['signal']);
+      await supervisor.request('echo', {});
+      assert.match(decryptKey(fs.readFileSync(keyPath())), /^[0-9a-f]{64}$/);
+      assert.isFalse(fs.existsSync(`${keyPath()}.tmp`));
+    });
+  });
+
   describe('getTrukiBridgeState', () => {
     it('reports unavailable, stopped and running', async () => {
       assert.strictEqual(

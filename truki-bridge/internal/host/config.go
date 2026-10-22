@@ -89,14 +89,33 @@ func stripTemplatedLines(example string) string {
 	return strings.Join(out, "")
 }
 
+// networkConfigOverrides are YAML documents applied over a network's example
+// config, per network ID, before validation. Only keys that differ from the
+// example are listed.
+var networkConfigOverrides = map[string]string{
+	"whatsapp": `
+# Shown in the phone's Linked devices.
+os_name: "Trüki"
+browser_name: unknown
+# The example appends " (WA)" to every name; Truki shows the network itself.
+displayname_template: '{{or .BusinessName .PushName .Phone .RedactedPhone "Unknown user"}}'
+enable_status_broadcast: false
+`,
+}
+
 // loadNetworkConfig fills the connector's config from its own example, as
 // mxmain does for a fresh config file, and validates it when the connector
-// supports that.
-func loadNetworkConfig(nc bridgev2.NetworkConnector) error {
+// supports that. The per-network overrides are applied in between.
+func loadNetworkConfig(network string, nc bridgev2.NetworkConnector) error {
 	example, data, _ := nc.GetConfig()
 	if data != nil && example != "" {
 		if err := yaml.Unmarshal([]byte(stripTemplatedLines(example)), data); err != nil {
 			return fmt.Errorf("failed to parse network config example: %w", err)
+		}
+		if override, ok := networkConfigOverrides[network]; ok {
+			if err := yaml.Unmarshal([]byte(override), data); err != nil {
+				return fmt.Errorf("failed to apply network config overrides: %w", err)
+			}
 		}
 	}
 	if v, ok := nc.(bridgev2.ConfigValidatingNetwork); ok {

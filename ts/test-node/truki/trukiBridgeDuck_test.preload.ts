@@ -525,6 +525,7 @@ describe('trukiBridge duck', () => {
   describe('thunks', () => {
     type Call = { method: string; params: unknown };
     let calls: Array<Call>;
+    let restartResult: TrukiBridgeIpcResult<void>;
     let respond: (method: string, params: unknown) => unknown;
     let listener: ((e: TrukiBridgeEvent) => void) | undefined;
 
@@ -561,6 +562,7 @@ describe('trukiBridge duck', () => {
 
     beforeEach(() => {
       calls = [];
+      restartResult = { ok: true, value: undefined };
       respond = () => ({});
       listener = undefined;
       const client: TrukiBridgeClient = {
@@ -580,6 +582,10 @@ describe('trukiBridge duck', () => {
         getState: async (): Promise<
           TrukiBridgeIpcResult<TrukiSupervisorStateName>
         > => ({ ok: true, value: 'running' }),
+        restart: async (): Promise<TrukiBridgeIpcResult<void>> => {
+          calls.push({ method: 'restart', params: undefined });
+          return restartResult;
+        },
         onEvent: cb => {
           listener = cb;
           return () => {
@@ -592,6 +598,26 @@ describe('trukiBridge duck', () => {
 
     afterEach(() => {
       setTrukiBridgeClientForTesting(undefined);
+    });
+
+    it('restartBridge asks main to restart and leaves state to the events', async () => {
+      const store = makeStore();
+      store.dispatch(actions.restartBridge());
+      await flush();
+      assert.deepEqual(calls, [{ method: 'restart', params: undefined }]);
+      assert.isUndefined(store.state().lastError);
+    });
+
+    it('restartBridge turns a failure into lastError', async () => {
+      restartResult = {
+        ok: false,
+        code: 'BRIDGE_STOPPED',
+        message: 'bridge was shut down',
+      };
+      const store = makeStore();
+      store.dispatch(actions.restartBridge());
+      await flush();
+      assert.strictEqual(store.state().lastError?.code, 'BRIDGE_STOPPED');
     });
 
     it('trukiBridgeStart subscribes once, pulls state and loads all pages', async () => {

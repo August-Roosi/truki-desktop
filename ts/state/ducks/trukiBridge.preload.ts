@@ -20,6 +20,7 @@ import type {
 import {
   onTrukiBridgeEvent,
   trukiBridgeGetState,
+  trukiBridgeRestart,
   trukiBridgeRequest,
 } from '../../services/trukiBridgeClient.preload.ts';
 import { handleTrukiBridgeNotifyFromDuck } from '../../services/trukiBridgeNotifications.preload.ts';
@@ -234,12 +235,14 @@ export type TrukiBridgeClient = ReadonlyDeep<{
     params?: unknown
   ) => Promise<TrukiBridgeIpcResult<T>>;
   getState: () => Promise<TrukiBridgeIpcResult<TrukiSupervisorStateName>>;
+  restart: () => Promise<TrukiBridgeIpcResult<void>>;
   onEvent: (cb: (e: TrukiBridgeEvent) => void) => () => void;
 }>;
 
 const defaultClient: TrukiBridgeClient = {
   request: trukiBridgeRequest,
   getState: trukiBridgeGetState,
+  restart: trukiBridgeRestart,
   onEvent: onTrukiBridgeEvent,
 };
 
@@ -464,6 +467,17 @@ async function call<T>(
     return undefined;
   }
   return result.value;
+}
+
+// The "Bridges stopped" banner's Restart. The new state arrives as
+// event.supervisorState; only a refusal is reported here.
+function restartBridge(): TrukiBridgeThunk<Promise<void>> {
+  return async dispatch => {
+    const result = await client.restart();
+    if (!result.ok) {
+      dispatch(errorFrom(result));
+    }
+  };
 }
 
 function loadNetworksAndAccounts(): TrukiBridgeThunk<Promise<void>> {
@@ -778,6 +792,7 @@ function retrySend(
 
 export const actions = {
   trukiBridgeStart,
+  restartBridge,
   trukiBridgeEventReceived,
   loadChats,
   selectBridgedChat,

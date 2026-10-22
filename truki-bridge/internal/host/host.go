@@ -176,7 +176,7 @@ func (h *Host) bridgeLocked(ctx context.Context, d NetworkDef) (*bridgev2.Bridge
 		return br, nil
 	}
 	nc := d.New()
-	if err := loadNetworkConfig(nc); err != nil {
+	if err := loadNetworkConfig(d.ID, nc); err != nil {
 		return nil, fmt.Errorf("%s: %w", d.ID, err)
 	}
 	log := h.log.With().Str("network", d.ID).Logger()

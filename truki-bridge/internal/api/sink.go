@@ -35,11 +35,29 @@ func (s *Sink) Chat(c *store.Chat) { s.notify("event.chat", newChatOut(c)) }
 
 // AccountState pushes event.accountState for a login's bridge state.
 func (s *Sink) AccountState(network string, st status.BridgeState) {
-	s.notify("event.accountState", map[string]any{
+	p := map[string]any{
 		"network": network,
 		"loginId": string(st.RemoteID),
 		"state":   string(st.StateEvent),
-	})
+	}
+	if reason := accountStateReason(st); reason != "" {
+		p["reason"] = reason
+	}
+	s.notify("event.accountState", p)
+}
+
+// accountStateReason is the BridgeState's error code and message joined,
+// "" when it has neither. Nothing else of the state goes in: Info can carry
+// network-specific details the user never needs to see.
+func accountStateReason(st status.BridgeState) string {
+	switch {
+	case st.Error != "" && st.Message != "":
+		return string(st.Error) + ": " + st.Message
+	case st.Error != "":
+		return string(st.Error)
+	default:
+		return st.Message
+	}
 }
 
 // Notify pushes event.notify for a network notification.

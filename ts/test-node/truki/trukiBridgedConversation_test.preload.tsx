@@ -223,6 +223,10 @@ describe('trukiBridgedConversation view', () => {
         getState: async (): Promise<
           TrukiBridgeIpcResult<TrukiSupervisorStateName>
         > => ({ ok: true, value: 'running' }),
+        restart: async (): Promise<TrukiBridgeIpcResult<void>> => ({
+          ok: true,
+          value: undefined,
+        }),
         onEvent: () => () => undefined,
       };
       setTrukiBridgeClientForTesting(client);

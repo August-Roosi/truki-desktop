@@ -49,6 +49,12 @@ export function trukiBridgeGetState(): Promise<
   return invoke<TrukiSupervisorStateName>('truki-bridge:get-state');
 }
 
+// Stops the bridge if it runs, resets its crash counter and starts it again.
+// Progress arrives as event.supervisorState.
+export function trukiBridgeRestart(): Promise<TrukiBridgeIpcResult<void>> {
+  return invoke<void>('truki-bridge:restart');
+}
+
 export function trukiPickAttachment(
   params: TrukiPickAttachmentParams
 ): Promise<TrukiBridgeIpcResult<{ eventId: string } | { cancelled: true }>> {
