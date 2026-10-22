@@ -583,6 +583,10 @@
     "messageformat": "This message will be deleted for everyone in this {network} chat.",
     "description": "Truki inbox > bridged conversation > description in the dialog confirming deleting your message for everyone"
   },
+  "icu:TrukiBridgeNotifications__NewMessage": {
+    "messageformat": "New message",
+    "description": "Truki inbox > desktop notification for a bridged chat > generic text shown when the notification setting hides the sender or the message content"
+  },
   "icu:LeftPaneChatFolders__ItemUnreadBadge__AccessibleLabel": {
     "messageformat": "{count, plural, one {# Unread Message} other {# Unread Messages}}",
     "description": "Left Pane > Inbox > Chat List > Chat Folders > Item > Badge Count > Accessible Label"

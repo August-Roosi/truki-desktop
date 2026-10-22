@@ -22,6 +22,8 @@ import {
   trukiBridgeGetState,
   trukiBridgeRequest,
 } from '../../services/trukiBridgeClient.preload.ts';
+import { handleTrukiBridgeNotifyFromDuck } from '../../services/trukiBridgeNotifications.preload.ts';
+import { actions as conversationsActions } from './conversations.preload.ts';
 
 // State
 
@@ -611,6 +613,28 @@ function trukiBridgeEventReceived(event: TrukiBridgeEvent): TrukiBridgeThunk {
       if (chatId && !before.chats[chatId]) {
         void dispatch(fetchChat(chatId));
       }
+    }
+    if (method === 'event.notify' && isRecord(params)) {
+      const chatId = str(params.chatId);
+      // Without a chatId there is no chat to mute, focus or select.
+      if (chatId) {
+        handleTrukiBridgeNotifyFromDuck(
+          {
+            chatId,
+            senderName:
+              str(params.senderName) || before.chats[chatId]?.name || '',
+            preview: str(params.message) || '',
+            network: str(params.network) || '',
+          },
+          {
+            getState,
+            showConversation: options =>
+              dispatch(conversationsActions.showConversation(options)),
+            selectBridgedChat: id => dispatch(actions.selectBridgedChat(id)),
+          }
+        );
+      }
+      return;
     }
   };
 }
