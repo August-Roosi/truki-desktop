@@ -463,6 +463,49 @@ describe('TrukiBridgeSupervisor', () => {
       ]);
     });
 
+    const isGone = (c: ChildProcess | undefined): boolean =>
+      c == null || c.exitCode != null || c.signalCode != null;
+    const alive = (): number => children.filter(c => !isGone(c)).length;
+
+    it('two restarts without awaiting spawn one new bridge', async () => {
+      const supervisor = make();
+      await supervisor.setEnabledNetworks(['signal']);
+      await supervisor.request('echo', {});
+      const first = children[0];
+      await Promise.all([supervisor.restart(), supervisor.restart()]);
+      await supervisor.request('echo', {});
+      assert.strictEqual(spawnCalls.length, 2);
+      await waitFor(() => isGone(first), 'old child exit');
+      assert.strictEqual(alive(), 1);
+    });
+
+    it('restart racing setEnabledNetworks leaves one live bridge', async () => {
+      const supervisor = make();
+      await supervisor.setEnabledNetworks(['signal']);
+      await supervisor.request('echo', {});
+      await Promise.all([
+        supervisor.restart(),
+        supervisor.setEnabledNetworks(['x']),
+      ]);
+      await supervisor.request('echo', {});
+      assert.strictEqual(supervisor.state, 'running');
+      assert.strictEqual(alive(), 1);
+    });
+
+    it('restart queued behind shutdown does not spawn', async () => {
+      const supervisor = make();
+      await supervisor.setEnabledNetworks(['signal']);
+      await supervisor.request('echo', {});
+      const restarting = supervisor.restart();
+      const shuttingDown = supervisor.shutdown();
+      await Promise.all([restarting, shuttingDown]);
+      assert.strictEqual(alive(), 0);
+      assert.strictEqual(supervisor.state, 'stopped');
+      const error = await rejection(supervisor.restart());
+      assert.strictEqual((error as { code: string }).code, 'BRIDGE_STOPPED');
+      assert.strictEqual(spawnCalls.length, 1);
+    });
+
     it('stays stopped when no network is enabled', async () => {
       const supervisor = make();
       await supervisor.restart();

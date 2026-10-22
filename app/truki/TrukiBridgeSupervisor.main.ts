@@ -129,6 +129,11 @@ export class TrukiBridgeSupervisor {
   #warnedNonObject = false;
   #lastReportedState: TrukiSupervisorStateName | undefined;
   #warnedUnavailable = false;
+  // Lifecycle transitions (stop, start, restart, shutdown, crash restart)
+  // run one at a time through this chain, so two of them never interleave
+  // around the awaited stop and leave a bridge running unreferenced.
+  #lifecycle: Promise<void> = Promise.resolve();
+  #restarting: Promise<void> | undefined;
 
   constructor(opts: TrukiBridgeSupervisorOptions) {
     this.#opts = opts;
@@ -174,6 +179,16 @@ export class TrukiBridgeSupervisor {
     }
   }
 
+  #enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    const previous = this.#lifecycle;
+    const result = (async () => {
+      await previous;
+      return fn();
+    })();
+    this.#lifecycle = swallow(result);
+    return result;
+  }
+
   getEnabledNetworks(): ReadonlyArray<string> {
     return this.#enabledNetworks;
   }
@@ -190,13 +205,15 @@ export class TrukiBridgeSupervisor {
       JSON.stringify({ enabledNetworks: this.#enabledNetworks })
     );
 
-    if (this.#enabledNetworks.length === 0) {
-      await this.#stop();
-      return;
-    }
-    if (this.#canStart() && this.#state === 'stopped') {
-      this.#start();
-    }
+    await this.#enqueue(async () => {
+      if (this.#enabledNetworks.length === 0) {
+        await this.#stop();
+        return;
+      }
+      if (this.#canStart() && this.#state === 'stopped') {
+        this.#start();
+      }
+    });
   }
 
   // Stops the bridge if it runs, forgets earlier crashes (and a give-up),
@@ -206,15 +223,36 @@ export class TrukiBridgeSupervisor {
     if (this.#closed) {
       throw new TrukiBridgeError('BRIDGE_STOPPED', 'bridge was shut down');
     }
-    await this.#stop();
-    this.#crashTimes = [];
-    this.#fatal = undefined;
-    if (this.#state !== 'stopped') {
-      this.#setState('stopped');
+    // A restart asked for while one is in flight is that restart.
+    if (this.#restarting) {
+      return this.#restarting;
     }
-    if (this.#enabledNetworks.length > 0 && this.#canStart()) {
-      this.#start();
-    }
+    const restarting = this.#enqueue(async () => {
+      // shutdown() wins over a restart queued before it.
+      if (this.#closed) {
+        return;
+      }
+      await this.#stop();
+      this.#crashTimes = [];
+      this.#fatal = undefined;
+      if (this.#state !== 'stopped') {
+        this.#setState('stopped');
+      }
+      if (this.#enabledNetworks.length > 0 && this.#canStart()) {
+        this.#start();
+      }
+    });
+    this.#restarting = restarting;
+    const clear = () => {
+      if (this.#restarting === restarting) {
+        this.#restarting = undefined;
+      }
+    };
+    void (async () => {
+      await swallow(restarting);
+      clear();
+    })();
+    return restarting;
   }
 
   async request<T>(method: string, params?: unknown): Promise<T> {
@@ -308,7 +346,7 @@ export class TrukiBridgeSupervisor {
 
   async shutdown(): Promise<void> {
     this.#closed = true;
-    await this.#stop();
+    await this.#enqueue(async () => this.#stop());
   }
 
   #canStart(): boolean {
@@ -603,9 +641,13 @@ export class TrukiBridgeSupervisor {
     const timeoutFn = this.#opts.setTimeoutFn ?? setTimeout;
     this.#restartTimer = timeoutFn(() => {
       this.#restartTimer = undefined;
-      if (this.#state === 'backoff' && this.#canStart()) {
-        this.#start();
-      }
+      void swallow(
+        this.#enqueue(async () => {
+          if (this.#state === 'backoff' && this.#canStart()) {
+            this.#start();
+          }
+        })
+      );
     }, delay);
   }
 
