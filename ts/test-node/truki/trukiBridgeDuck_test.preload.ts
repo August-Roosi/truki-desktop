@@ -245,6 +245,37 @@ describe('trukiBridge duck', () => {
     assert.deepEqual(chat.preview, { text: 'body of $1', fromMe: false });
   });
 
+  it("event.chat fills the preview from the bridge's lastMessage", () => {
+    const state = apply(
+      getEmptyState(),
+      'event.chat',
+      wireChat(CHAT_A, { lastMessage: { body: 'stored', fromMe: true } })
+    );
+    assert.deepEqual(chatOf(state, CHAT_A).preview, {
+      text: 'stored',
+      fromMe: true,
+    });
+  });
+
+  it('a redacted lastMessage gives an empty preview text', () => {
+    const state = apply(
+      getEmptyState(),
+      'event.chat',
+      wireChat(CHAT_A, {
+        lastMessage: { body: 'leaked', fromMe: false, redacted: true },
+      })
+    );
+    assert.deepEqual(chatOf(state, CHAT_A).preview, {
+      text: '',
+      fromMe: false,
+    });
+  });
+
+  it('a chat without lastMessage has no preview', () => {
+    const state = apply(getEmptyState(), 'event.chat', wireChat(CHAT_A));
+    assert.isUndefined(chatOf(state, CHAT_A).preview);
+  });
+
   describe('event.accountState', () => {
     it('ignores an empty loginId', () => {
       const state = apply(getEmptyState(), 'event.accountState', {
@@ -636,7 +667,14 @@ describe('trukiBridge duck', () => {
             ];
           case 'chats.list':
             return (params as { cursor?: string }).cursor === 'c2'
-              ? { chats: [wireChat(CHAT_B)], nextCursor: '' }
+              ? {
+                  chats: [
+                    wireChat(CHAT_B, {
+                      lastMessage: { body: 'after restart', fromMe: false },
+                    }),
+                  ],
+                  nextCursor: '',
+                }
               : { chats: [wireChat(CHAT_A)], nextCursor: 'c2' };
           default:
             return {};
@@ -652,6 +690,10 @@ describe('trukiBridge duck', () => {
       assert.lengthOf(state.networks, 1);
       assert.lengthOf(state.accounts, 1);
       assert.hasAllKeys(state.chats, [CHAT_A, CHAT_B]);
+      assert.deepEqual(chatOf(state, CHAT_B).preview, {
+        text: 'after restart',
+        fromMe: false,
+      });
       assert.deepEqual(
         calls.filter(c => c.method === 'chats.list').map(c => c.params),
         [{ limit: 200 }, { cursor: 'c2', limit: 200 }]

@@ -191,7 +191,7 @@ func registerRead(conn *rpc.Conn, h *host.Host, st *store.Store) {
 		}
 		out := make([]chatOut, 0, len(chats))
 		for _, c := range chats {
-			out = append(out, newChatOut(c))
+			out = append(out, newChatOutWith(ctx, st, c))
 		}
 		return map[string]any{"chats": out, "nextCursor": next}, nil
 	})
@@ -213,7 +213,7 @@ func registerRead(conn *rpc.Conn, h *host.Host, st *store.Store) {
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"chat": newChatOut(chat), "members": members}, nil
+		return map[string]any{"chat": newChatOutWith(ctx, st, chat), "members": members}, nil
 	})
 	conn.Handle("messages.list", func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var p struct {

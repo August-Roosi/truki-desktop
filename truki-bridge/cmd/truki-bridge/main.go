@@ -143,7 +143,7 @@ func serve(noise bool) error {
 			return nil, rpc.Errf(rpc.CodeInternal, "fail pending events: %v", err)
 		}
 		defs := networks.All()
-		h = host.NewHost(db, st, p.DataDir, api.NewSink(conn.Notify), defs, log)
+		h = host.NewHost(db, st, p.DataDir, api.NewSink(conn.Notify, st), defs, log)
 		api.Register(conn, h, st)
 		if err := h.Start(ctx); err != nil {
 			h.Stop()

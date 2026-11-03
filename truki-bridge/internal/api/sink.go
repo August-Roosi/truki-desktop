@@ -4,14 +4,17 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"time"
+	"unicode/utf8"
 
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/status"
 	"maunium.net/go/mautrix/id"
 
 	"github.com/August-Roosi/truki-desktop/truki-bridge/internal/store"
+	"github.com/August-Roosi/truki-desktop/truki-bridge/internal/trukiconnector"
 )
 
 // Sink forwards every change the connector reports to Truki as an RPC
@@ -19,19 +22,23 @@ import (
 // the notifications on the same connection as the replies.
 type Sink struct {
 	notify func(method string, params any)
+	st     *store.Store
 }
 
 // NewSink returns a Sink pushing notifications through notify, the RPC
-// connection's Notify.
-func NewSink(notify func(method string, params any)) *Sink {
-	return &Sink{notify: notify}
+// connection's Notify. st is read for each chat's lastMessage; with a nil st
+// event.chat carries none.
+func NewSink(notify func(method string, params any), st *store.Store) *Sink {
+	return &Sink{notify: notify, st: st}
 }
 
 // Message pushes event.message for a stored or updated event.
 func (s *Sink) Message(ev *store.Event) { s.notify("event.message", newEventOut(ev)) }
 
 // Chat pushes event.chat for a changed chat row.
-func (s *Sink) Chat(c *store.Chat) { s.notify("event.chat", newChatOut(c)) }
+func (s *Sink) Chat(c *store.Chat) {
+	s.notify("event.chat", newChatOutWith(context.Background(), s.st, c))
+}
 
 // AccountState pushes event.accountState for a login's bridge state.
 func (s *Sink) AccountState(network string, st status.BridgeState) {
@@ -111,6 +118,65 @@ type chatOut struct {
 	MutedUntil   string `json:"mutedUntil,omitempty"`
 	LastActivity string `json:"lastActivity,omitempty"`
 	LastEventID  string `json:"lastEventId,omitempty"`
+	// LastMessage is the chat's last timeline message (the lastEventId
+	// event), absent when the chat has none.
+	LastMessage *lastMessageOut `json:"lastMessage,omitempty"`
+}
+
+// lastMessageOut is the chat-list preview of a chat's last message.
+type lastMessageOut struct {
+	Body     string `json:"body"`
+	FromMe   bool   `json:"fromMe"`
+	Redacted bool   `json:"redacted,omitempty"`
+}
+
+// lastMessageMaxRunes caps the preview body: the chat list shows one line.
+const lastMessageMaxRunes = 200
+
+// newChatOutWith is newChatOut plus the chat's lastMessage, read from st.
+// A nil st, a missing event or a read error leave lastMessage out: the
+// preview is a nicety and never fails the chat itself.
+func newChatOutWith(ctx context.Context, st *store.Store, c *store.Chat) chatOut {
+	out := newChatOut(c)
+	if st == nil || c.LastEventID == "" {
+		return out
+	}
+	ev, err := st.GetEvent(ctx, c.LastEventID)
+	if err != nil || ev == nil {
+		return out
+	}
+	out.LastMessage = newLastMessageOut(ev)
+	return out
+}
+
+func newLastMessageOut(ev *store.Event) *lastMessageOut {
+	lm := &lastMessageOut{FromMe: ev.Sender == trukiconnector.LocalUser}
+	if ev.Redacted {
+		lm.Redacted = true
+		return lm
+	}
+	var content struct {
+		Body string `json:"body"`
+	}
+	if json.Unmarshal(ev.Content, &content) == nil {
+		lm.Body = truncateRunes(content.Body, lastMessageMaxRunes)
+	}
+	return lm
+}
+
+// truncateRunes cuts s to at most n runes, never splitting a character.
+func truncateRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	i := 0
+	for pos := range s {
+		if i == n {
+			return s[:pos]
+		}
+		i++
+	}
+	return s
 }
 
 func newChatOut(c *store.Chat) chatOut {

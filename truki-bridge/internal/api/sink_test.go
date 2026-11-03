@@ -18,7 +18,7 @@ func accountStateParams(t *testing.T, st status.BridgeState) map[string]any {
 			t.Fatalf("method = %q", method)
 		}
 		got = params.(map[string]any)
-	})
+	}, nil)
 	s.AccountState("whatsapp", st)
 	return got
 }
@@ -58,6 +58,23 @@ func TestAccountStateNoReasonWhenNone(t *testing.T) {
 	} {
 		if _, ok := accountStateParams(t, st)["reason"]; ok {
 			t.Errorf("%+v: reason present", st)
+		}
+	}
+}
+
+func TestTruncateRunes(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		n    int
+		want string
+	}{
+		{"", 3, ""},
+		{"abc", 3, "abc"},
+		{"abcd", 3, "abc"},
+		{"äöüõ", 2, "äö"},
+	} {
+		if got := truncateRunes(c.in, c.n); got != c.want {
+			t.Errorf("truncateRunes(%q, %d) = %q; want %q", c.in, c.n, got, c.want)
 		}
 	}
 }

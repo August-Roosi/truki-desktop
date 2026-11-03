@@ -673,6 +673,97 @@ func TestChatsListPaging(t *testing.T) {
 	e.wantError(e.call("chats.list", map[string]any{"limit": "many"}), "INVALID_INPUT")
 }
 
+// TestChatsListLastMessage checks the chat-list preview: the fixture chat's
+// incoming message, nothing for a chat without messages, a capped body for
+// a long message of the local user, and no body for a redacted one.
+func TestChatsListLastMessage(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	base := time.Now()
+	put := func(name string, ev *store.Event) {
+		t.Helper()
+		chat := &store.Chat{
+			ID:           id.RoomID("!" + name + ":truki.local"),
+			Network:      "fake",
+			LoginID:      "alice",
+			PortalID:     name,
+			Name:         name,
+			LastActivity: base.Add(time.Hour),
+		}
+		if ev != nil {
+			ev.RoomID = chat.ID
+			ev.Type = event.EventMessage.Type
+			ev.Timestamp = base
+			if _, err := e.st.PutEvent(ctx, ev); err != nil {
+				t.Fatalf("put event in %s: %v", name, err)
+			}
+			chat.LastEventID = ev.ID
+		}
+		if err := e.st.PutChat(ctx, chat); err != nil {
+			t.Fatalf("put chat %s: %v", name, err)
+		}
+	}
+	put("empty", nil)
+	long := strings.Repeat("ä", 250)
+	put("long", &store.Event{
+		ID:      "$long:truki.local",
+		Sender:  trukiconnector.LocalUser,
+		Content: json.RawMessage(`{"msgtype":"m.text","body":"` + long + `"}`),
+	})
+	put("gone", &store.Event{
+		ID:       "$gone:truki.local",
+		Sender:   "@fake_friend:truki.local",
+		Content:  json.RawMessage(`{}`),
+		Redacted: true,
+	})
+
+	r := e.call("chats.list", nil)
+	if r.Error != nil {
+		t.Fatalf("chats.list: %+v", r.Error)
+	}
+	var page struct {
+		Chats []struct {
+			ID          string          `json:"id"`
+			LastMessage json.RawMessage `json:"lastMessage"`
+		} `json:"chats"`
+	}
+	if err := json.Unmarshal(r.Result, &page); err != nil {
+		t.Fatalf("chats.list result %s: %v", r.Result, err)
+	}
+	got := map[string]string{}
+	for _, c := range page.Chats {
+		got[c.ID] = string(c.LastMessage)
+	}
+	want := map[string]string{
+		string(e.chat):       `{"body":"tere","fromMe":false}`,
+		"!empty:truki.local": "",
+		"!long:truki.local":  `{"body":"` + strings.Repeat("ä", 200) + `","fromMe":true}`,
+		"!gone:truki.local":  `{"body":"","fromMe":false,"redacted":true}`,
+	}
+	for chatID, w := range want {
+		if got[chatID] != w {
+			t.Errorf("lastMessage of %s = %s; want %s", chatID, got[chatID], w)
+		}
+	}
+
+	// chats.get carries the same preview.
+	r = e.call("chats.get", map[string]any{"chatId": e.chat})
+	if r.Error != nil {
+		t.Fatalf("chats.get: %+v", r.Error)
+	}
+	var one struct {
+		Chat struct {
+			LastMessage json.RawMessage `json:"lastMessage"`
+		} `json:"chat"`
+	}
+	if err := json.Unmarshal(r.Result, &one); err != nil {
+		t.Fatalf("chats.get result %s: %v", r.Result, err)
+	}
+	if string(one.Chat.LastMessage) != want[string(e.chat)] {
+		t.Errorf("chats.get lastMessage = %s; want %s", one.Chat.LastMessage, want[string(e.chat)])
+	}
+}
+
 func TestChatsGet(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()

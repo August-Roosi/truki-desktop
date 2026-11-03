@@ -366,6 +366,7 @@ function parseChat(
   const avatarMxc = str(value.avatar) || undefined;
   const mutedUntil = parseTime(value.mutedUntil);
   const lastEventId = str(value.lastEventId) || existing?.lastEventId;
+  const preview = parseLastMessage(value.lastMessage) ?? existing?.preview;
   return {
     id,
     network: str(value.network) ?? '',
@@ -380,7 +381,20 @@ function parseChat(
     ...(avatarMxc ? { avatarMxc } : {}),
     ...(mutedUntil !== undefined ? { mutedUntil } : {}),
     ...(lastEventId ? { lastEventId } : {}),
-    ...(existing?.preview ? { preview: existing.preview } : {}),
+    ...(preview ? { preview } : {}),
+  };
+}
+
+// The bridge's lastMessage: the stored preview that survives a restart.
+function parseLastMessage(
+  value: unknown
+): TrukiBridgedChatSummary['preview'] | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  return {
+    text: value.redacted === true ? '' : (str(value.body) ?? ''),
+    fromMe: value.fromMe === true,
   };
 }
 

@@ -37,11 +37,16 @@ answers `INVALID_INPUT`; a failed `init` (for any reason) may be retried.
 Request:
 
 ```json
-{"jsonrpc":"2.0","id":1,"method":"init","params":{
-  "protocolVersion":1,
-  "dataDir":"/path/to/bridge/data",
-  "dbKey":"<64 hex chars>"
-}}
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "init",
+  "params": {
+    "protocolVersion": 1,
+    "dataDir": "/path/to/bridge/data",
+    "dbKey": "<64 hex chars>"
+  }
+}
 ```
 
 - `protocolVersion` (int): must be `1`, the current `ProtocolVersion`. Any
@@ -65,11 +70,15 @@ networks it serves.
 Result:
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":{
-  "protocolVersion":1,
-  "bridgeVersion":"<version>",
-  "networks":[{"id":"signal","name":"Signal"}]
-}}
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "protocolVersion": 1,
+    "bridgeVersion": "<version>",
+    "networks": [{ "id": "signal", "name": "Signal" }]
+  }
+}
 ```
 
 ## Concurrency
@@ -105,7 +114,7 @@ logged on stderr, and the bridge keeps serving.
   secrets; it carries the network's error code and message. A
   global state (the bridge itself, not a login) has an empty `loginId`.
 - `event.notify`: params are `{network, chatId?, senderName?, messageId,
-  message}` — a network notification (typically an incoming message for
+message}` — a network notification (typically an incoming message for
   a chat the user has not opened). `chatId` and `senderName` are present
   when known.
 - `event.typing`: params are `{chatId, users: [userId, ...]}`, the users
@@ -227,10 +236,15 @@ pushed); the mute is not sent to the network. Result: `{}`.
 The read-side methods return the store as it is now. Two objects recur:
 
 - A **chat**: `{id, network, loginId, name, topic, avatar?, isDm,
-  unreadCount, mutedUntil?, lastActivity?, lastEventId?}`, with the times
-  as RFC 3339 and `avatar` the `mxc://` content URI of the chat's avatar.
+unreadCount, mutedUntil?, lastActivity?, lastEventId?, lastMessage?}`,
+  with the times as RFC 3339 and `avatar` the `mxc://` content URI of the
+  chat's avatar. `lastMessage` is `{body, fromMe, redacted?}`, the chat-list
+  preview of the `lastEventId` message: `body` is its stored content's
+  `body`, cut to 200 characters, and `fromMe` whether the local user
+  (`@me:truki.local`) sent it. A redacted message has `redacted: true` and
+  `body` `""`. `lastMessage` is absent when the chat has no message.
 - An **event**: `{id, chatId, sender, type, content, timestamp?,
-  streamOrder, status?, errorCode?, redacted?, relatesTo?, relType?}`,
+streamOrder, status?, errorCode?, redacted?, relatesTo?, relType?}`,
   where `content` is the Matrix event content as stored, `streamOrder`
   is the event's absolute position in the chat (newest = highest), and
   `status`/`errorCode` only exist for the local user's outgoing events.
@@ -372,32 +386,36 @@ Every error response carries the JSON-RPC code and, in `data.code`, the
 Truki string code:
 
 ```json
-{"jsonrpc":"2.0","id":1,"error":{
-  "code":-32602,
-  "message":"unsupported protocolVersion 2, want 1",
-  "data":{"code":"INVALID_INPUT"}
-}}
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "error": {
+    "code": -32602,
+    "message": "unsupported protocolVersion 2, want 1",
+    "data": { "code": "INVALID_INPUT" }
+  }
+}
 ```
 
 JSON-RPC codes:
 
-| code   | meaning                                    |
-|--------|--------------------------------------------|
-| -32700 | line is not valid JSON (id is `null`)      |
-| -32600 | valid JSON, not a usable request           |
-| -32601 | unknown method                            |
-| -32602 | `INVALID_INPUT` from params or handlers    |
-| -32000 | every other Truki code                     |
+| code   | meaning                                 |
+| ------ | --------------------------------------- |
+| -32700 | line is not valid JSON (id is `null`)   |
+| -32600 | valid JSON, not a usable request        |
+| -32601 | unknown method                          |
+| -32602 | `INVALID_INPUT` from params or handlers |
+| -32000 | every other Truki code                  |
 
 Truki codes (`data.code`):
 
-| code             | meaning                                          |
-|------------------|--------------------------------------------------|
-| `NOT_INITIALIZED`| method called before a successful `init`         |
-| `INVALID_INPUT`  | bad params, unknown method, oversize line        |
-| `NOT_FOUND`      | requested chat, event, login or process does not exist |
-| `LOGIN_FAILED`   | the network rejected a login step; the process is gone |
-| `INTERNAL`       | unexpected handler failure (also logged)         |
+| code              | meaning                                                |
+| ----------------- | ------------------------------------------------------ |
+| `NOT_INITIALIZED` | method called before a successful `init`               |
+| `INVALID_INPUT`   | bad params, unknown method, oversize line              |
+| `NOT_FOUND`       | requested chat, event, login or process does not exist |
+| `LOGIN_FAILED`    | the network rejected a login step; the process is gone |
+| `INTERNAL`        | unexpected handler failure (also logged)               |
 
 Handler errors that are not `rpc.Error` values are reported as `INTERNAL`
 with the handler's error message and logged.
