@@ -1,11 +1,14 @@
 // Copyright 2026 Truki
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import { createLogger } from '../logging/log.std.ts';
 import { itemStorage } from '../textsecure/Storage.preload.ts';
 import type { TrukiSpaceBridgedMembers } from '../types/TrukiSpaceBridgedMembers.std.ts';
 
 export type { TrukiSpaceBridgedMembers } from '../types/TrukiSpaceBridgedMembers.std.ts';
 export { trukiChatInSpace } from '../types/TrukiSpaceBridgedMembers.std.ts';
+
+const log = createLogger('trukiSpaceMembers');
 
 // Spaces membership lives in one item storage key; itemStorage.put feeds
 // the write back into the items duck, so selectors can read it from state.
@@ -105,6 +108,8 @@ export async function saveTrukiMembersForNewSpace(options: {
     networks: ReadonlyArray<string>;
   };
   timeoutMs?: number;
+  // Where a dropped write is reported; log.warn by default.
+  warn?: (message: string) => void;
 }): Promise<string | undefined> {
   const { knownFolderIds, getFolderIds, subscribe } = options;
   await options.create();
@@ -139,6 +144,13 @@ export async function saveTrukiMembersForNewSpace(options: {
   // More than one new id (a sync landed meanwhile) is ambiguous: write none.
   const [newId] = newIds;
   if (newIds.length !== 1 || newId == null) {
+    // Only the reason: chat ids and names stay out of the log.
+    const warn = options.warn ?? (message => log.warn(message));
+    warn(
+      newIds.length === 0
+        ? 'new Space did not appear in time; its bridged members were not saved'
+        : 'several new Spaces appeared at once; bridged members were not saved'
+    );
     return undefined;
   }
   await setTrukiSpaceMembers(newId, options.members);

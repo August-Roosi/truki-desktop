@@ -322,6 +322,7 @@ describe('trukiSpaceEditor', () => {
       });
 
       it('writes nothing when no folder appears', async () => {
+        const warnings: Array<string> = [];
         const result = await saveTrukiMembersForNewSpace({
           knownFolderIds: new Set(['all']),
           create: async () => undefined,
@@ -329,9 +330,31 @@ describe('trukiSpaceEditor', () => {
           subscribe: () => () => undefined,
           members: { chatIds: ['c1'], networks: [] },
           timeoutMs: 20,
+          warn: message => warnings.push(message),
         });
         assert.isUndefined(result);
         assert.deepEqual(getTrukiSpaceMembers(), {});
+        assert.lengthOf(warnings, 1);
+        assert.include(warnings[0], 'did not appear in time');
+        assert.notInclude(warnings[0], 'c1');
+      });
+
+      it('writes nothing and warns once when several folders appear', async () => {
+        const warnings: Array<string> = [];
+        const result = await saveTrukiMembersForNewSpace({
+          knownFolderIds: new Set(['all']),
+          create: async () => undefined,
+          getFolderIds: () => ['all', 'new-a', 'new-b'],
+          subscribe: () => () => undefined,
+          members: { chatIds: ['secret-chat'], networks: [] },
+          timeoutMs: 1000,
+          warn: message => warnings.push(message),
+        });
+        assert.isUndefined(result);
+        assert.deepEqual(getTrukiSpaceMembers(), {});
+        assert.lengthOf(warnings, 1);
+        assert.include(warnings[0], 'several new Spaces');
+        assert.notInclude(warnings[0], 'secret-chat');
       });
     });
   });
