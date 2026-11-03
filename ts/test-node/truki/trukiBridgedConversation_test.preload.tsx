@@ -10,6 +10,7 @@ import type { AxoIntl } from '../../axo/_internal/AxoIntl.dom.tsx';
 
 import { TrukiBridgedConversation } from '../../components/truki/TrukiBridgedConversation.dom.tsx';
 import type { TrukiBridgedConversationProps } from '../../components/truki/TrukiBridgedConversation.dom.tsx';
+import { shouldAutoLoadOlder } from '../../components/truki/TrukiBridgedTimeline.dom.tsx';
 import {
   actions,
   getEmptyState,
@@ -408,5 +409,30 @@ describe('trukiBridgedConversation view', () => {
     assert.strictEqual(count(markup, 'changed'), 2); // bubble + quote
     assert.include(markup, '👍');
     assert.include(markup, `truki-media://truki.local/${'b'.repeat(64)}`);
+  });
+});
+
+describe('TrukiBridgedTimeline shouldAutoLoadOlder', () => {
+  const base = {
+    hasOlder: true,
+    loading: false,
+    scrollHeight: 300,
+    clientHeight: 600,
+  };
+
+  it('loads when older pages exist and the content does not fill the view', () => {
+    assert.isTrue(shouldAutoLoadOlder(base));
+    assert.isTrue(
+      shouldAutoLoadOlder({ ...base, scrollHeight: 600, clientHeight: 600 })
+    );
+  });
+
+  it('does not load once the content scrolls', () => {
+    assert.isFalse(shouldAutoLoadOlder({ ...base, scrollHeight: 601 }));
+  });
+
+  it('does not load while loading or without older pages', () => {
+    assert.isFalse(shouldAutoLoadOlder({ ...base, loading: true }));
+    assert.isFalse(shouldAutoLoadOlder({ ...base, hasOlder: false }));
   });
 });

@@ -35,6 +35,23 @@ export type TrukiBridgedTimelineProps = Readonly<{
   onSaveFile?: (mxc: string, name: string) => void;
 }>;
 
+// A page can hold too few bubbles to fill the viewport (reactions, edits and
+// redactions render none), and then no scroll event ever asks for more:
+// such a timeline loads its next older page by itself.
+export function shouldAutoLoadOlder({
+  hasOlder,
+  loading,
+  scrollHeight,
+  clientHeight,
+}: Readonly<{
+  hasOlder: boolean;
+  loading: boolean;
+  scrollHeight: number;
+  clientHeight: number;
+}>): boolean {
+  return hasOlder && !loading && scrollHeight <= clientHeight;
+}
+
 // Newest at the bottom; scrolling to the top loads older pages, keeping the
 // visible messages in place.
 export const TrukiBridgedTimeline = memo(function TrukiBridgedTimeline({
@@ -64,6 +81,12 @@ export const TrukiBridgedTimeline = memo(function TrukiBridgedTimeline({
     null
   );
 
+  // The items an automatic older-page load was last asked for: at most one
+  // request per set of items, so a failing load cannot loop.
+  const autoLoadedItemsRef = useRef<ReadonlyArray<TrukiTimelineItem> | null>(
+    null
+  );
+
   const firstId = items[0]?.id;
   const newestId = items.at(-1)?.id;
 
@@ -81,6 +104,21 @@ export const TrukiBridgedTimeline = memo(function TrukiBridgedTimeline({
       anchorRef.current = null;
     } else if (atBottomRef.current) {
       el.scrollTop = el.scrollHeight;
+    }
+    if (
+      autoLoadedItemsRef.current !== items &&
+      shouldAutoLoadOlder({
+        hasOlder,
+        loading,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+      })
+    ) {
+      autoLoadedItemsRef.current = items;
+      if (firstId) {
+        anchorRef.current = { firstId, scrollHeight: el.scrollHeight };
+      }
+      onLoadOlder();
     }
   });
 
