@@ -65,13 +65,32 @@ function isWebUrl(url: string): boolean {
   }
 }
 
+// The loggable part of a failed load: Electron's error code and errno. The
+// error's message and url carry the full URL, query (OAuth tokens) included,
+// so neither is ever read.
+export function describeTrukiLoadError(error: unknown): string {
+  if (typeof error !== 'object' || error == null) {
+    return 'unknown';
+  }
+  const { code, errno } = error as { code?: unknown; errno?: unknown };
+  const parts = [
+    typeof code === 'string' && /^[A-Z0-9_]+$/.test(code) ? code : undefined,
+    typeof errno === 'number' ? `errno ${errno}` : undefined,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : 'unknown';
+}
+
 // A failed load still leaves the window for the user to retry or close.
-// Only the reason is logged, never the URL.
-async function loadInWindow(win: BrowserWindow, url: string): Promise<void> {
+// Only a fixed text and the error code are logged, never the URL.
+export async function loadTrukiLoginUrl(
+  win: Pick<BrowserWindow, 'loadURL'>,
+  url: string,
+  warn: (message: string) => void = message => log.warn(message)
+): Promise<void> {
   try {
     await win.loadURL(url);
   } catch (error) {
-    log.warn('login page did not load', (error as Error)?.message);
+    warn(`login page did not load: ${describeTrukiLoadError(error)}`);
   }
 }
 
@@ -140,7 +159,7 @@ export async function openTrukiCookieLogin(
   // Popups (an OAuth or "continue" link) open in this same window.
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (isWebUrl(url) && !win.isDestroyed()) {
-      void loadInWindow(win, url);
+      void loadTrukiLoginUrl(win, url);
     }
     return { action: 'deny' };
   });
@@ -241,7 +260,7 @@ export async function openTrukiCookieLogin(
       }, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS)
     );
 
-    void loadInWindow(win, opts.url);
+    void loadTrukiLoginUrl(win, opts.url);
   });
 }
 

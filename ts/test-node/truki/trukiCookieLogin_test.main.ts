@@ -8,6 +8,8 @@ import type { BrowserWindowConstructorOptions } from 'electron';
 
 import {
   denyTrukiLoginPermissions,
+  describeTrukiLoadError,
+  loadTrukiLoginUrl,
   openTrukiCookieLogin,
   parseTrukiCookieLoginStep,
 } from '../../../app/truki/trukiCookieLogin.main.ts';
@@ -379,5 +381,38 @@ describe('TrukiCookieLogin', () => {
         );
       }
     });
+  });
+});
+
+describe('loadTrukiLoginUrl', () => {
+  it('logs the error code of a failed load, never the URL or message', async () => {
+    const url = 'https://login.example/cb?token=SECRET';
+    const error = Object.assign(
+      new Error(`ERR_NAME_NOT_RESOLVED (-105) loading '${url}'`),
+      { code: 'ERR_NAME_NOT_RESOLVED', errno: -105, url }
+    );
+    const logged: Array<string> = [];
+    await loadTrukiLoginUrl(
+      { loadURL: () => Promise.reject(error) },
+      url,
+      message => logged.push(message)
+    );
+    assert.lengthOf(logged, 1);
+    assert.notInclude(logged.join('\n'), 'SECRET');
+    assert.notInclude(logged.join('\n'), 'login.example');
+    assert.include(logged[0], 'ERR_NAME_NOT_RESOLVED');
+    assert.include(logged[0], 'errno -105');
+  });
+
+  it('describes an error without a code as unknown', () => {
+    assert.strictEqual(
+      describeTrukiLoadError(new Error('https://x/?token=SECRET')),
+      'unknown'
+    );
+    assert.strictEqual(
+      describeTrukiLoadError({ code: 'https://x/?token=SECRET' }),
+      'unknown'
+    );
+    assert.strictEqual(describeTrukiLoadError(undefined), 'unknown');
   });
 });
