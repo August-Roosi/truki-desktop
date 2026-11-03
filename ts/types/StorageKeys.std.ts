@@ -347,6 +347,9 @@ export type StorageAccessType = {
   sfuUrl: string | undefined;
   callStatsIntervalSecs: number | undefined;
 
+  // Truki: networks whose ban-risk warning the user accepted.
+  trukiBridgeBanRiskAccepted: ReadonlyArray<string>;
+
   // Deprecated
   'challenge:retry-message-ids': never;
   nextSignedKeyRotationTime: number;
@@ -461,6 +464,7 @@ export const STORAGE_KEYS_TO_PRESERVE_AFTER_UNLINK = [
   'defaultDimWallpaperInDarkMode',
   'defaultAutoBubbleColor',
   'restoredBackupFirstAppVersion',
+  'trukiBridgeBanRiskAccepted',
 ] as const satisfies ReadonlyArray<keyof StorageAccessType>;
 
 export const STORAGE_KEYS_TO_PRESERVE_WHEN_PRIMARY = [

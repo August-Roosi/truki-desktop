@@ -6,6 +6,7 @@ import { useSelector } from 'react-redux';
 
 import type { PropsType as LeftPanePropsType } from '../../components/LeftPane.dom.tsx';
 import { LeftPaneMode } from '../../types/leftPane.std.ts';
+import { isTrukiAccountDisconnected } from '../../util/trukiAccountState.std.ts';
 import { trukiSelectBridgedChat } from '../../util/trukiBridgedSelection.std.ts';
 import { useConversationsActions } from '../ducks/conversations.preload.ts';
 import { useTrukiBridgeActions } from '../ducks/trukiBridge.preload.ts';
@@ -19,15 +20,6 @@ type ModeSpecificProps = LeftPanePropsType['modeSpecificProps'];
 
 // The bridge's mute is a time; "muted" with no end is the far future.
 export const TRUKI_MUTED_FOREVER = Date.UTC(9999, 11, 31);
-
-// Account states (mautrix bridge states) in which the account's chats cannot
-// send or receive.
-const DISCONNECTED_STATES: ReadonlySet<string> = new Set([
-  'TRANSIENT_DISCONNECT',
-  'BAD_CREDENTIALS',
-  'UNKNOWN_ERROR',
-  'LOGGED_OUT',
-]);
 
 // Starts the bridge client once and adds the bridged chats to the left
 // pane's inbox props. Every other mode, and an inbox without bridged chats,
@@ -50,7 +42,7 @@ export function useTrukiLeftPaneInboxProps(
   const disconnectedLoginIds = useMemo(
     () =>
       accounts
-        .filter(account => DISCONNECTED_STATES.has(account.state))
+        .filter(account => isTrukiAccountDisconnected(account.state))
         .map(account => account.loginId),
     [accounts]
   );

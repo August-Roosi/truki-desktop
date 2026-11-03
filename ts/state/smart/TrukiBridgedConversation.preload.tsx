@@ -17,6 +17,8 @@ import {
 } from '../ducks/trukiBridge.preload.ts';
 import { getTrukiBridge } from '../selectors/trukiBridge.std.ts';
 import { getIntl, getTheme } from '../selectors/user.std.ts';
+import { useNavActions } from '../ducks/nav.std.ts';
+import { NavTab, SettingsPage } from '../../types/Nav.std.ts';
 import { TRUKI_MUTED_FOREVER } from './useTrukiLeftPaneInboxProps.preload.ts';
 
 const NO_EVENTS = [] as const;
@@ -58,7 +60,9 @@ export const SmartTrukiBridgedConversation = memo(
     const bridge = useSelector(getTrukiBridge);
     const {
       clearBridgeError,
+      enableNetwork,
       loadOlderMessages,
+      restartBridge,
       markRead,
       redactMessage,
       retrySend,
@@ -66,6 +70,7 @@ export const SmartTrukiBridgedConversation = memo(
       sendText,
       setMuted,
     } = useTrukiBridgeActions();
+    const { changeLocation } = useNavActions();
 
     // A failed attachment pick, shown like a failed request.
     const [attachError, setAttachError] = useState<
@@ -163,6 +168,23 @@ export const SmartTrukiBridgedConversation = memo(
       clearBridgeError();
     }, [clearBridgeError]);
 
+    const onRestartBridge = useCallback(() => {
+      void restartBridge();
+    }, [restartBridge]);
+
+    // Opens Settings > Connected accounts with the network's login started.
+    const network = chat?.network;
+    const onReconnectAccount = useCallback(() => {
+      if (!network) {
+        return;
+      }
+      changeLocation({
+        tab: NavTab.Settings,
+        details: { page: SettingsPage.TrukiConnectedAccounts },
+      });
+      void enableNetwork(network);
+    }, [changeLocation, enableNetwork, network]);
+
     const error = attachError ?? bridge.lastError;
 
     return (
@@ -195,6 +217,11 @@ export const SmartTrukiBridgedConversation = memo(
         onDismissError={onDismissError}
         retriedEventIds={bridge.retriedByChat?.[chatId]}
         onSaveMedia={onSaveMedia}
+        // Without secure storage a restart cannot help.
+        onRestartBridge={
+          bridge.bridgeState === 'unavailable' ? undefined : onRestartBridge
+        }
+        onReconnectAccount={network ? onReconnectAccount : undefined}
       />
     );
   }

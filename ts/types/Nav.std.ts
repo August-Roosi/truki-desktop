@@ -96,6 +96,9 @@ export enum SettingsPage {
   LocalBackupsSetupFolder = 'LocalBackupsSetupFolder',
   LocalBackupsSetupKey = 'LocalBackupsSetupKey',
   LocalBackupsKeyReference = 'LocalBackupsKeyReference',
+
+  // Truki
+  TrukiConnectedAccounts = 'TrukiConnectedAccounts',
 }
 
 export enum ProfileEditorPage {

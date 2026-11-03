@@ -587,6 +587,126 @@
     "messageformat": "New message",
     "description": "Truki inbox > desktop notification for a bridged chat > generic text shown when the notification setting hides the sender or the message content"
   },
+  "icu:TrukiConnectedAccounts__Title": {
+    "messageformat": "Connected accounts",
+    "description": "Truki > Settings > Connected accounts > nav item and page title"
+  },
+  "icu:TrukiConnectedAccounts__Description": {
+    "messageformat": "Read and reply to your chats from other networks in Truki.",
+    "description": "Truki > Settings > Connected accounts > text under the page title"
+  },
+  "icu:TrukiConnectedAccounts__Connect": {
+    "messageformat": "Connect",
+    "description": "Truki > Settings > Connected accounts > button that starts logging in to a network"
+  },
+  "icu:TrukiConnectedAccounts__LogOut": {
+    "messageformat": "Log out",
+    "description": "Truki > Settings > Connected accounts > button that logs an account out of a network"
+  },
+  "icu:TrukiConnectedAccounts__NotConnected": {
+    "messageformat": "Not connected",
+    "description": "Truki > Settings > Connected accounts > shown for a network with no connected account"
+  },
+  "icu:TrukiConnectedAccounts__Status--connected": {
+    "messageformat": "Connected",
+    "description": "Truki > Settings > Connected accounts > account status"
+  },
+  "icu:TrukiConnectedAccounts__Status--connecting": {
+    "messageformat": "Connecting…",
+    "description": "Truki > Settings > Connected accounts > account status while the account connects"
+  },
+  "icu:TrukiConnectedAccounts__Status--logged-out": {
+    "messageformat": "Logged out",
+    "description": "Truki > Settings > Connected accounts > account status when the account must log in again"
+  },
+  "icu:TrukiConnectedAccounts__Status--error": {
+    "messageformat": "Connection problem",
+    "description": "Truki > Settings > Connected accounts > account status when the account is disconnected because of an error"
+  },
+  "icu:TrukiConnectedAccounts__BridgeStarting": {
+    "messageformat": "Starting other networks…",
+    "description": "Truki > Settings > Connected accounts > banner while the bridge process starts"
+  },
+  "icu:TrukiConnectedAccounts__BridgeStopped": {
+    "messageformat": "Other networks have stopped.",
+    "description": "Truki > Settings > Connected accounts > banner when the bridge process is not running"
+  },
+  "icu:TrukiConnectedAccounts__Restart": {
+    "messageformat": "Restart",
+    "description": "Truki > Settings > Connected accounts > banner button that restarts the bridge process"
+  },
+  "icu:TrukiConnectedAccounts__SecureStorageUnavailable": {
+    "messageformat": "Secure storage is unavailable on this system, so other networks can't be connected.",
+    "description": "Truki > Settings > Connected accounts > banner when the operating system offers no secure storage for the bridge key"
+  },
+  "icu:TrukiConnectedAccounts__ChooseFlow": {
+    "messageformat": "How do you want to log in to {network}?",
+    "description": "Truki > Settings > Connected accounts > heading above the list of login methods"
+  },
+  "icu:TrukiConnectedAccounts__Waiting": {
+    "messageformat": "Waiting for {network}…",
+    "description": "Truki > Settings > Connected accounts > shown while a login step loads"
+  },
+  "icu:TrukiConnectedAccounts__QrAlt": {
+    "messageformat": "QR code to log in to {network}",
+    "description": "Truki > Settings > Connected accounts > accessible text of the login QR code"
+  },
+  "icu:TrukiConnectedAccounts__QrInstructions": {
+    "messageformat": "Scan this code with {network} on your phone.",
+    "description": "Truki > Settings > Connected accounts > fallback instructions under the login QR code"
+  },
+  "icu:TrukiConnectedAccounts__CodeInstructions": {
+    "messageformat": "Enter this code in {network} on your phone.",
+    "description": "Truki > Settings > Connected accounts > fallback instructions under the pairing code"
+  },
+  "icu:TrukiConnectedAccounts__Continue": {
+    "messageformat": "Continue",
+    "description": "Truki > Settings > Connected accounts > button that submits the login form"
+  },
+  "icu:TrukiConnectedAccounts__CookiesInstructions": {
+    "messageformat": "Log in to {network} in a separate window. Truki closes it when you're logged in.",
+    "description": "Truki > Settings > Connected accounts > instructions for a login done in a separate window"
+  },
+  "icu:TrukiConnectedAccounts__OpenLoginWindow": {
+    "messageformat": "Open login window",
+    "description": "Truki > Settings > Connected accounts > button that opens the network's login page in a separate window"
+  },
+  "icu:TrukiConnectedAccounts__LoginExpired": {
+    "messageformat": "The login timed out.",
+    "description": "Truki > Settings > Connected accounts > error when the login took too long"
+  },
+  "icu:TrukiConnectedAccounts__LoginFailed": {
+    "messageformat": "Couldn't log in to {network}.",
+    "description": "Truki > Settings > Connected accounts > error when the network rejected the login"
+  },
+  "icu:TrukiConnectedAccounts__UnsupportedStep": {
+    "messageformat": "{network} asked for a login step Truki can't show yet.",
+    "description": "Truki > Settings > Connected accounts > error when the network needs a login step Truki does not support"
+  },
+  "icu:TrukiConnectedAccounts__TryAgain": {
+    "messageformat": "Try again",
+    "description": "Truki > Settings > Connected accounts > button that starts the login again after an error"
+  },
+  "icu:TrukiConnectedAccounts__BanRiskTitle": {
+    "messageformat": "Connect {network}?",
+    "description": "Truki > Settings > Connected accounts > title of the warning shown before connecting a network the first time"
+  },
+  "icu:TrukiConnectedAccounts__BanRiskDescription": {
+    "messageformat": "{network} may suspend accounts that use unofficial apps like Truki. Only connect an account you are willing to risk.",
+    "description": "Truki > Settings > Connected accounts > warning shown before connecting a network the first time"
+  },
+  "icu:TrukiConnectedAccounts__BanRiskConfirm": {
+    "messageformat": "Connect anyway",
+    "description": "Truki > Settings > Connected accounts > button that accepts the ban-risk warning and connects"
+  },
+  "icu:TrukiConnectedAccounts__LogOutTitle": {
+    "messageformat": "Log out of {network}?",
+    "description": "Truki > Settings > Connected accounts > title of the dialog confirming logging an account out"
+  },
+  "icu:TrukiConnectedAccounts__LogOutDescription": {
+    "messageformat": "Truki stops receiving messages from this account. You can connect it again later.",
+    "description": "Truki > Settings > Connected accounts > text of the dialog confirming logging an account out"
+  },
   "icu:LeftPaneChatFolders__ItemUnreadBadge__AccessibleLabel": {
     "messageformat": "{count, plural, one {# Unread Message} other {# Unread Messages}}",
     "description": "Left Pane > Inbox > Chat List > Chat Folders > Item > Badge Count > Accessible Label"

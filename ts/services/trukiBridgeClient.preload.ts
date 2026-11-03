@@ -8,6 +8,7 @@
 import { ipcRenderer } from 'electron';
 import type {
   TrukiBridgeEvent,
+  TrukiCookieLoginParams,
   TrukiBridgeIpcResult,
   TrukiPickAttachmentParams,
   TrukiSaveMediaParams,
@@ -71,6 +72,27 @@ export function trukiSaveMedia(
 ): Promise<TrukiBridgeIpcResult<{ saved: true } | { cancelled: true }>> {
   return invoke<{ saved: true } | { cancelled: true }>(
     'truki-bridge:save-media',
+    params
+  );
+}
+
+// The networks main keeps the bridge running for; an empty list stops it.
+export function trukiSetEnabledNetworks(
+  ids: ReadonlyArray<string>
+): Promise<TrukiBridgeIpcResult<void>> {
+  return invoke<void>('truki-bridge:set-enabled-networks', ids);
+}
+
+// Main opens the login window for the process's current cookies step and
+// submits the cookies itself. The result is the login.submit result (the next
+// step), never a cookie value.
+export function trukiCookieLogin(
+  params: TrukiCookieLoginParams
+): Promise<
+  TrukiBridgeIpcResult<{ cancelled: true } | { step: unknown; seq: number }>
+> {
+  return invoke<{ cancelled: true } | { step: unknown; seq: number }>(
+    'truki-bridge:cookie-login',
     params
   );
 }

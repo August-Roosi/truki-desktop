@@ -130,6 +130,7 @@ import {
 } from '../../types/StorageKeys.std.ts';
 import type { BlockedConversation } from '../../components/Preferences.dom.tsx';
 import { pinReminderService } from '../../services/pinReminder.preload.ts';
+import { renderTrukiConnectedAccounts } from './TrukiConnectedAccounts.preload.tsx';
 
 function renderUpdateDialog(
   props: Readonly<{ containerWidthBreakpoint: WidthBreakpoint }>
@@ -1151,6 +1152,7 @@ export function SmartPreferences(): JSX.Element | null {
         onNotificationContentChange={onNotificationContentChange}
         onNotificationsChange={onNotificationsChange}
         onExitSettings={exitSettings}
+        renderTrukiConnectedAccounts={renderTrukiConnectedAccounts}
         onNotifyWhileMutedChange={onNotifyWhileMutedChange}
         onStartUpdate={startUpdate}
         onPreferContactAvatarsChange={onPreferContactAvatarsChange}

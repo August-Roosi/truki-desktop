@@ -300,6 +300,11 @@ type PropsFunctionType = {
   getConversationsWithCustomColor: (colorId: string) => Array<ConversationType>;
   makeSyncRequest: () => unknown;
   onExitSettings?: () => void;
+  // Truki: Settings > Connected accounts; the page and its nav item are
+  // shown only when this is given.
+  renderTrukiConnectedAccounts?: (options: {
+    contentsRef: MutableRefObject<HTMLDivElement | null>;
+  }) => JSX.Element;
   onStartUpdate: () => unknown;
   pickLocalBackupFolder: () => Promise<string | undefined>;
   refreshCloudBackupStatus: () => void;
@@ -570,6 +575,7 @@ export function Preferences({
   onNotificationContentChange,
   onNotificationsChange,
   onExitSettings,
+  renderTrukiConnectedAccounts,
   onNotifyWhileMutedChange,
   onPinRemindersChange,
   onPreferContactAvatarsChange,
@@ -2532,6 +2538,12 @@ export function Preferences({
       setSettingsLocation,
       contentsRef: settingsPaneRef,
     });
+  } else if (
+    settingsLocation.page === SettingsPage.TrukiConnectedAccounts &&
+    renderTrukiConnectedAccounts
+  ) {
+    // oxlint-disable-next-line react/refs
+    content = renderTrukiConnectedAccounts({ contentsRef: settingsPaneRef });
   } else if (settingsLocation.page === SettingsPage.Internal) {
     content = (
       <PreferencesContent
@@ -2741,6 +2753,21 @@ export function Preferences({
                   setSettingsLocation({ page: SettingsPage.Chats })
                 }
               />
+              {renderTrukiConnectedAccounts ? (
+                <PreferencesButton
+                  symbol="link"
+                  label={i18n('icu:TrukiConnectedAccounts__Title')}
+                  current={
+                    settingsLocation.page ===
+                    SettingsPage.TrukiConnectedAccounts
+                  }
+                  onClick={() =>
+                    setSettingsLocation({
+                      page: SettingsPage.TrukiConnectedAccounts,
+                    })
+                  }
+                />
+              ) : null}
               <PreferencesButton
                 symbol="phone"
                 label={i18n('icu:Preferences__button--calls')}

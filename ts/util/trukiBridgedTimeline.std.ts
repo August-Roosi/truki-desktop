@@ -9,6 +9,7 @@
 import { mxcToTrukiMediaUrl } from '../../app/truki/trukiBridgeProtocol.std.ts';
 import type { TrukiSupervisorStateName } from '../../app/truki/trukiBridgeProtocol.std.ts';
 import type { TrukiBridgedEvent } from '../state/ducks/trukiBridge.preload.ts';
+import { isTrukiAccountLoggedOut } from './trukiAccountState.std.ts';
 
 export type TrukiTimelineContent =
   | Readonly<{
@@ -294,12 +295,6 @@ export type TrukiConversationBannerKind =
   | 'bridge-down'
   | 'logged-out';
 
-// Account states in which the account has to be logged in again.
-const LOGGED_OUT_STATES: ReadonlySet<string> = new Set([
-  'LOGGED_OUT',
-  'BAD_CREDENTIALS',
-]);
-
 export function getTrukiConversationBanner(
   bridgeState: TrukiSupervisorStateName,
   accountState: string | undefined
@@ -310,7 +305,7 @@ export function getTrukiConversationBanner(
   if (bridgeState !== 'running') {
     return 'bridge-down';
   }
-  if (accountState !== undefined && LOGGED_OUT_STATES.has(accountState)) {
+  if (accountState !== undefined && isTrukiAccountLoggedOut(accountState)) {
     return 'logged-out';
   }
   return undefined;

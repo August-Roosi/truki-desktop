@@ -15,6 +15,7 @@ import { useBoundActions } from '../../hooks/useBoundActions.std.ts';
 import type {
   TrukiBridgeEvent,
   TrukiBridgeIpcResult,
+  TrukiCookieLoginParams,
   TrukiSupervisorStateName,
 } from '../../../app/truki/trukiBridgeProtocol.std.ts';
 import {
@@ -22,6 +23,8 @@ import {
   trukiBridgeGetState,
   trukiBridgeRestart,
   trukiBridgeRequest,
+  trukiCookieLogin,
+  trukiSetEnabledNetworks,
 } from '../../services/trukiBridgeClient.preload.ts';
 import { handleTrukiBridgeNotifyFromDuck } from '../../services/trukiBridgeNotifications.preload.ts';
 import { actions as conversationsActions } from './conversations.preload.ts';
@@ -60,6 +63,25 @@ export type TrukiBridgedEvent = ReadonlyDeep<{
 export type TrukiBridgeLoginError = ReadonlyDeep<{
   code: string;
   message: string;
+}>;
+
+export type TrukiLoginFlow = ReadonlyDeep<{
+  id: string;
+  name: string;
+  description: string;
+}>;
+
+// A login the Connected accounts page has open for a network: the network
+// is being enabled (the bridge starting), a flow is being chosen, or a login
+// process runs (its step lives in loginProcesses[processId]).
+export type TrukiLoginAttempt = ReadonlyDeep<{
+  stage: 'starting-bridge' | 'flows' | 'process';
+  flows?: ReadonlyArray<TrukiLoginFlow>;
+  flowId?: string;
+  processId?: string;
+  // A request for this login is in flight.
+  busy?: boolean;
+  error?: TrukiBridgeLoginError;
 }>;
 
 export type TrukiBridgeStateType = ReadonlyDeep<{
@@ -114,6 +136,8 @@ export type TrukiBridgeStateType = ReadonlyDeep<{
   lastError: { code: string; message: string; at: number } | undefined;
   // Failed events the user already retried, per chat; Retry is offered once.
   retriedByChat?: Readonly<Record<string, ReadonlyArray<string>>>;
+  // Open logins per network (Connected accounts page).
+  loginAttempts?: Readonly<Record<string, TrukiLoginAttempt>>;
 }>;
 
 type MessagesEntry = ReadonlyDeep<
@@ -149,6 +173,8 @@ const ERROR_SET = 'trukiBridge/ERROR_SET';
 const ERROR_CLEARED = 'trukiBridge/ERROR_CLEARED';
 const RETRY_STARTED = 'trukiBridge/RETRY_STARTED';
 const RETRY_FAILED = 'trukiBridge/RETRY_FAILED';
+const LOGIN_ATTEMPT_SET = 'trukiBridge/LOGIN_ATTEMPT_SET';
+const LOGIN_ATTEMPT_PATCHED = 'trukiBridge/LOGIN_ATTEMPT_PATCHED';
 
 type EventAppliedAction = ReadonlyDeep<{
   type: typeof EVENT_APPLIED;
@@ -206,6 +232,18 @@ type RetryAction = ReadonlyDeep<{
   payload: { chatId: string; eventId: string };
 }>;
 
+// Replaces (or with no attempt, closes) a network's login; the process of the
+// attempt it replaces is forgotten.
+type LoginAttemptSetAction = ReadonlyDeep<{
+  type: typeof LOGIN_ATTEMPT_SET;
+  payload: { network: string; attempt: TrukiLoginAttempt | undefined };
+}>;
+// Merged into the network's attempt; nothing happens when it was closed.
+type LoginAttemptPatchedAction = ReadonlyDeep<{
+  type: typeof LOGIN_ATTEMPT_PATCHED;
+  payload: { network: string; patch: Partial<TrukiLoginAttempt> };
+}>;
+
 export type TrukiBridgeAction = ReadonlyDeep<
   | EventAppliedAction
   | NetworksLoadedAction
@@ -221,6 +259,8 @@ export type TrukiBridgeAction = ReadonlyDeep<
   | ErrorSetAction
   | ErrorClearedAction
   | RetryAction
+  | LoginAttemptSetAction
+  | LoginAttemptPatchedAction
 >;
 
 type TrukiBridgeThunk<R = void> = ReadonlyDeep<
@@ -237,6 +277,14 @@ export type TrukiBridgeClient = ReadonlyDeep<{
   getState: () => Promise<TrukiBridgeIpcResult<TrukiSupervisorStateName>>;
   restart: () => Promise<TrukiBridgeIpcResult<void>>;
   onEvent: (cb: (e: TrukiBridgeEvent) => void) => () => void;
+  setEnabledNetworks?: (
+    ids: ReadonlyArray<string>
+  ) => Promise<TrukiBridgeIpcResult<void>>;
+  cookieLogin?: (
+    params: TrukiCookieLoginParams
+  ) => Promise<
+    TrukiBridgeIpcResult<{ cancelled: true } | { step: unknown; seq: number }>
+  >;
 }>;
 
 const defaultClient: TrukiBridgeClient = {
@@ -244,6 +292,14 @@ const defaultClient: TrukiBridgeClient = {
   getState: trukiBridgeGetState,
   restart: trukiBridgeRestart,
   onEvent: onTrukiBridgeEvent,
+  setEnabledNetworks: trukiSetEnabledNetworks,
+  cookieLogin: trukiCookieLogin,
+};
+
+const NOT_SUPPORTED: TrukiBridgeIpcResult<never> = {
+  ok: false,
+  code: 'INTERNAL',
+  message: 'not supported by this client',
 };
 
 let client: TrukiBridgeClient = defaultClient;
@@ -619,7 +675,22 @@ function trukiBridgeEventReceived(event: TrukiBridgeEvent): TrukiBridgeThunk {
       const next = parseSupervisorState(params.state);
       if (next === 'running' && before.bridgeState !== 'running') {
         void dispatch(reloadAfterStart());
+        for (const [network, attempt] of Object.entries(
+          getState().trukiBridge.loginAttempts ?? {}
+        )) {
+          if (attempt.stage === 'starting-bridge' && !attempt.error) {
+            void dispatch(loadLoginFlows(network));
+          }
+        }
       }
+      return;
+    }
+    if (
+      method === 'event.login.step' &&
+      isRecord(params) &&
+      isCompleteStep(params.step)
+    ) {
+      void dispatch(loadNetworksAndAccounts());
       return;
     }
     if (method === 'event.message' && isRecord(params)) {
@@ -790,6 +861,285 @@ function retrySend(
   };
 }
 
+// Logins (Connected accounts page). None of these throws; a failure becomes
+// the attempt's error, which the page shows with Try again.
+
+function loginErrorFrom(
+  result: TrukiBridgeIpcResult<unknown> & { ok: false }
+): TrukiBridgeLoginError {
+  return { code: result.bridgeCode ?? result.code, message: result.message };
+}
+
+function setLoginAttempt(
+  network: string,
+  attempt: TrukiLoginAttempt | undefined
+): LoginAttemptSetAction {
+  return { type: LOGIN_ATTEMPT_SET, payload: { network, attempt } };
+}
+
+function patchLoginAttempt(
+  network: string,
+  patch: Partial<TrukiLoginAttempt>
+): LoginAttemptPatchedAction {
+  return { type: LOGIN_ATTEMPT_PATCHED, payload: { network, patch } };
+}
+
+function parseFlows(value: unknown): ReadonlyArray<TrukiLoginFlow> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter(isRecord)
+    .map(f => ({
+      id: str(f.id) ?? '',
+      name: str(f.name) ?? '',
+      description: str(f.description) ?? '',
+    }))
+    .filter(f => f.id !== '');
+}
+
+function isCompleteStep(step: unknown): boolean {
+  return isRecord(step) && step.type === 'complete';
+}
+
+// The attempt's running process and its current step id, if it has one.
+function currentLoginStep(
+  state: TrukiBridgeStateType,
+  network: string
+): { processId: string; stepId: string } | undefined {
+  const processId = state.loginAttempts?.[network]?.processId;
+  const process = processId ? state.loginProcesses[processId] : undefined;
+  if (!processId || !process || process.error || !isRecord(process.step)) {
+    return undefined;
+  }
+  const stepId = str(process.step.step_id);
+  return stepId ? { processId, stepId } : undefined;
+}
+
+function loadLoginFlows(network: string): TrukiBridgeThunk<Promise<void>> {
+  return async (dispatch, getState) => {
+    const result = await client.request<unknown>('login.flows', { network });
+    if (!getState().trukiBridge.loginAttempts?.[network]) {
+      return;
+    }
+    if (!result.ok) {
+      dispatch(patchLoginAttempt(network, { error: loginErrorFrom(result) }));
+      return;
+    }
+    const flows = parseFlows(result.value);
+    const [only] = flows;
+    if (flows.length === 1 && only) {
+      await dispatch(startLogin(network, only.id));
+      return;
+    }
+    dispatch(patchLoginAttempt(network, { stage: 'flows', flows }));
+  };
+}
+
+// Connect: enables the network (main starts the bridge if needed), keeping
+// every network that already has logins enabled, then opens its login.
+function enableNetwork(network: string): TrukiBridgeThunk<Promise<void>> {
+  return async (dispatch, getState) => {
+    dispatch(setLoginAttempt(network, { stage: 'starting-bridge' }));
+    let { networks } = getState().trukiBridge;
+    if (getState().trukiBridge.bridgeState === 'running') {
+      const fresh = await client.request<unknown>('networks.list');
+      if (fresh.ok && Array.isArray(fresh.value)) {
+        networks = fresh.value.filter(isRecord).map(n => ({
+          id: str(n.id) ?? '',
+          name: str(n.name) ?? '',
+          enabled: n.enabled === true,
+        }));
+        dispatch({ type: NETWORKS_LOADED, payload: networks });
+      }
+    }
+    const enabled = networks.filter(n => n.enabled).map(n => n.id);
+    const ids = enabled.includes(network) ? enabled : [...enabled, network];
+    const result = await (client.setEnabledNetworks?.(ids) ?? NOT_SUPPORTED);
+    if (!getState().trukiBridge.loginAttempts?.[network]) {
+      return;
+    }
+    if (!result.ok) {
+      dispatch(patchLoginAttempt(network, { error: loginErrorFrom(result) }));
+      return;
+    }
+    // Otherwise the bridge is starting; event.supervisorState 'running'
+    // loads the flows.
+    if (getState().trukiBridge.bridgeState === 'running') {
+      await dispatch(loadLoginFlows(network));
+    }
+  };
+}
+
+function startLogin(
+  network: string,
+  flowId: string
+): TrukiBridgeThunk<Promise<void>> {
+  return async (dispatch, getState) => {
+    const flows = getState().trukiBridge.loginAttempts?.[network]?.flows;
+    dispatch(
+      setLoginAttempt(network, {
+        stage: 'process',
+        flowId,
+        busy: true,
+        ...(flows ? { flows } : {}),
+      })
+    );
+    const result = await client.request<unknown>('login.start', {
+      network,
+      flowId,
+    });
+    const value = result.ok && isRecord(result.value) ? result.value : {};
+    const processId = str(value.processId);
+    if (!getState().trukiBridge.loginAttempts?.[network]) {
+      // Cancelled while starting: close the process the bridge just opened.
+      if (processId) {
+        void client.request('login.cancel', { processId });
+      }
+      return;
+    }
+    if (!result.ok) {
+      dispatch(
+        patchLoginAttempt(network, {
+          busy: false,
+          error: loginErrorFrom(result),
+        })
+      );
+      return;
+    }
+    if (!processId) {
+      dispatch(
+        patchLoginAttempt(network, {
+          busy: false,
+          error: { code: 'INTERNAL', message: 'no login process' },
+        })
+      );
+      return;
+    }
+    dispatch(
+      loginStarted({
+        processId,
+        network,
+        step: value.step,
+        seq: typeof value.seq === 'number' ? value.seq : 0,
+      })
+    );
+    if (isCompleteStep(value.step)) {
+      await dispatch(loadNetworksAndAccounts());
+    }
+  };
+}
+
+// Try again after an error: the same flow again, or the flows from the start.
+function retryLogin(network: string): TrukiBridgeThunk<Promise<void>> {
+  return async (dispatch, getState) => {
+    const flowId = getState().trukiBridge.loginAttempts?.[network]?.flowId;
+    await dispatch(
+      flowId ? startLogin(network, flowId) : enableNetwork(network)
+    );
+  };
+}
+
+// A submit result is the next step, applied like event.login.step.
+function applyLoginResult(
+  network: string,
+  processId: string,
+  value: unknown
+): TrukiBridgeThunk<Promise<void>> {
+  return async dispatch => {
+    dispatch(patchLoginAttempt(network, { busy: false }));
+    const params = isRecord(value) ? value : {};
+    dispatch(
+      trukiBridgeEventReceived({
+        method: 'event.login.step',
+        params: { processId, step: params.step, seq: params.seq },
+      })
+    );
+  };
+}
+
+function submitLoginInput(
+  network: string,
+  input: Readonly<Record<string, string>>
+): TrukiBridgeThunk<Promise<void>> {
+  return async (dispatch, getState) => {
+    const current = currentLoginStep(getState().trukiBridge, network);
+    if (!current) {
+      return;
+    }
+    dispatch(patchLoginAttempt(network, { busy: true }));
+    const result = await client.request<unknown>('login.submit', {
+      ...current,
+      input,
+    });
+    if (!result.ok) {
+      dispatch(
+        patchLoginAttempt(network, {
+          busy: false,
+          error: loginErrorFrom(result),
+        })
+      );
+      return;
+    }
+    await dispatch(applyLoginResult(network, current.processId, result.value));
+  };
+}
+
+// A cookies step: main opens the network's login page in its own window and
+// submits the cookies; this only sees the next step, a cancel or an error.
+function startCookieLogin(network: string): TrukiBridgeThunk<Promise<void>> {
+  return async (dispatch, getState) => {
+    const current = currentLoginStep(getState().trukiBridge, network);
+    if (!current) {
+      return;
+    }
+    dispatch(patchLoginAttempt(network, { busy: true }));
+    const result = await (client.cookieLogin?.(current) ?? NOT_SUPPORTED);
+    if (!result.ok) {
+      dispatch(
+        patchLoginAttempt(network, {
+          busy: false,
+          error: loginErrorFrom(result),
+        })
+      );
+      return;
+    }
+    if ('cancelled' in result.value) {
+      dispatch(patchLoginAttempt(network, { busy: false }));
+      return;
+    }
+    await dispatch(applyLoginResult(network, current.processId, result.value));
+  };
+}
+
+// Closes the network's login; a running process is cancelled.
+function cancelLogin(network: string): TrukiBridgeThunk<Promise<void>> {
+  return async (dispatch, getState) => {
+    const state = getState().trukiBridge;
+    const attempt = state.loginAttempts?.[network];
+    if (!attempt) {
+      return;
+    }
+    const { processId } = attempt;
+    const process = processId ? state.loginProcesses[processId] : undefined;
+    dispatch(setLoginAttempt(network, undefined));
+    if (processId && process && !process.error && !attempt.error) {
+      // NOT_FOUND (the bridge already closed it) is not worth showing.
+      await client.request('login.cancel', { processId });
+    }
+  };
+}
+
+function logout(
+  network: string,
+  loginId: string
+): TrukiBridgeThunk<Promise<void>> {
+  return async dispatch => {
+    await call(dispatch, 'accounts.logout', { loginId, network });
+    await dispatch(loadNetworksAndAccounts());
+  };
+}
+
 export const actions = {
   trukiBridgeStart,
   restartBridge,
@@ -805,6 +1155,13 @@ export const actions = {
   setMuted,
   retrySend,
   clearBridgeError,
+  enableNetwork,
+  startLogin,
+  retryLogin,
+  submitLoginInput,
+  startCookieLogin,
+  cancelLogin,
+  logout,
 };
 
 export const useTrukiBridgeActions = (): BoundActionCreatorsMapObject<
@@ -957,6 +1314,28 @@ function applyLoginStep(
   };
 }
 
+// A process that reached `complete` closes the login that ran it.
+function finishCompletedLogin(
+  state: TrukiBridgeStateType,
+  processId: string
+): TrukiBridgeStateType {
+  const process = state.loginProcesses[processId];
+  if (!process || process.error || !isCompleteStep(process.step)) {
+    return state;
+  }
+  const entry = Object.entries(state.loginAttempts ?? {}).find(
+    ([, attempt]) => attempt.processId === processId
+  );
+  if (!entry) {
+    return state;
+  }
+  const loginAttempts = { ...state.loginAttempts };
+  delete loginAttempts[entry[0]];
+  const loginProcesses = { ...state.loginProcesses };
+  delete loginProcesses[processId];
+  return { ...state, loginAttempts, loginProcesses };
+}
+
 function applyAccountState(
   state: TrukiBridgeStateType,
   params: Record<string, unknown>
@@ -1039,8 +1418,11 @@ function applyEvent(
     }
     case 'event.accountState':
       return applyAccountState(state, params);
-    case 'event.login.step':
-      return applyLoginStep(state, params);
+    case 'event.login.step': {
+      const processId = str(params.processId);
+      const next = applyLoginStep(state, params);
+      return processId ? finishCompletedLogin(next, processId) : next;
+    }
     case 'event.typing': {
       const chatId = str(params.chatId);
       if (!chatId) {
@@ -1171,11 +1553,34 @@ export function reducer(
       }
       const pendingLoginEvents = { ...state.pendingLoginEvents };
       delete pendingLoginEvents[processId];
-      return {
-        ...state,
-        loginProcesses: { ...state.loginProcesses, [processId]: process },
-        pendingLoginEvents,
-      };
+      // The network's open login now runs this process.
+      const attempt = state.loginAttempts?.[network];
+      const loginProcesses = { ...state.loginProcesses, [processId]: process };
+      if (attempt?.processId && attempt.processId !== processId) {
+        delete loginProcesses[attempt.processId];
+      }
+      return finishCompletedLogin(
+        {
+          ...state,
+          loginProcesses,
+          pendingLoginEvents,
+          ...(attempt
+            ? {
+                loginAttempts: {
+                  ...state.loginAttempts,
+                  [network]: {
+                    ...attempt,
+                    stage: 'process',
+                    processId,
+                    busy: false,
+                    error: undefined,
+                  },
+                },
+              }
+            : {}),
+        },
+        processId
+      );
     }
     case ERROR_SET:
       return { ...state, lastError: action.payload };
@@ -1183,6 +1588,36 @@ export function reducer(
       return state.lastError === undefined
         ? state
         : { ...state, lastError: undefined };
+    case LOGIN_ATTEMPT_SET: {
+      const { network, attempt } = action.payload;
+      const stale = state.loginAttempts?.[network]?.processId;
+      const loginAttempts = { ...state.loginAttempts };
+      if (attempt) {
+        loginAttempts[network] = attempt;
+      } else {
+        delete loginAttempts[network];
+      }
+      if (!stale || stale === attempt?.processId) {
+        return { ...state, loginAttempts };
+      }
+      const loginProcesses = { ...state.loginProcesses };
+      delete loginProcesses[stale];
+      return { ...state, loginAttempts, loginProcesses };
+    }
+    case LOGIN_ATTEMPT_PATCHED: {
+      const { network, patch } = action.payload;
+      const attempt = state.loginAttempts?.[network];
+      if (!attempt) {
+        return state;
+      }
+      return {
+        ...state,
+        loginAttempts: {
+          ...state.loginAttempts,
+          [network]: { ...attempt, ...patch },
+        },
+      };
+    }
     case RETRY_STARTED:
     case RETRY_FAILED: {
       const { chatId, eventId } = action.payload;
