@@ -101,7 +101,8 @@ logged on stderr, and the bridge keeps serving.
   the same `state` values as `accounts.list`. Pushed for every bridge state
   change of a login. `reason` is the state's error code and message joined
   as `"<code>: <message>"` (either part alone when the other is empty); it
-  is absent when the state carries neither, and never holds secrets. A
+  is absent when the state carries neither. It is intended not to contain
+  secrets; it carries the network's error code and message. A
   global state (the bridge itself, not a login) has an empty `loginId`.
 - `event.notify`: params are `{network, chatId?, senderName?, messageId,
   message}` — a network notification (typically an incoming message for
@@ -114,6 +115,39 @@ logged on stderr, and the bridge keeps serving.
 
 The `event.login.step` notification of the login flows is described with
 the login methods below.
+
+### Supervisor IPC channels and events (Truki renderer)
+
+These are not bridge RPC; they are the Electron IPC channels registered by
+the supervisor in the main process. Every `ipcMain.handle` channel answers
+`{ok: true, value}` or `{ok: false, code, bridgeCode?, message}` and never
+throws.
+
+- `truki-bridge:request` `(method, params)`: forwards a bridge RPC method.
+  A `messages.send` with non-empty `attachments` is refused (see
+  `messages.send`); use `truki-bridge:pick-attachment` instead.
+- `truki-bridge:get-state`: value is the supervisor state, one of `stopped`,
+  `starting`, `running`, `backoff`, `gave-up`, `unavailable`.
+- `truki-bridge:set-enabled-networks` `(ids)`: persists the enabled network
+  list and (re)starts or stops the bridge accordingly.
+- `truki-bridge:restart`: restarts the bridge; the way out of `gave-up`.
+- `truki-bridge:pick-attachment` `{chatId, caption?, replyTo?}`: main shows
+  the file dialog and sends the chosen file with `messages.send`. Value is
+  `{eventId}` or `{cancelled: true}`. The renderer never supplies a path.
+- `truki-bridge:save-media` `{mxc, suggestedName?}`: main shows a save
+  dialog and copies the stored media there. Value is `{saved: true}` or
+  `{cancelled: true}`.
+- `truki-bridge:cookie-login` `{processId, stepId}`: opens a main-owned
+  login window for a cookie step; the login URL and cookie names come from
+  the step the bridge reported, not from the caller. Value is
+  `{cancelled: true}` or `{step, seq}` (the result of `login.submit`).
+- `truki-bridge:event` (main to renderer): carries every bridge notification
+  unchanged, plus `event.supervisorState` with params `{state}` (same values
+  as `truki-bridge:get-state`), sent on every supervisor state change.
+
+Media is served to the renderer through the privileged `truki-media`
+scheme: `truki-media://truki.local/<64 hex>` stands for
+`mxc://truki.local/<64 hex>`.
 
 ## Methods
 

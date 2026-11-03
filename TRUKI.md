@@ -98,6 +98,7 @@ build tools.
 
 ```sh
 pnpm install          # re-run after switching branches: Electron version matters
+pnpm run build:truki-bridge   # the installer packs build/truki-bridge/truki-bridge.exe
 pnpm run build        # generates, bundles, packages and signs into release/
 node scripts/truki-sign-update.mjs release/truki-desktop-win-x64-<version>.exe
 gh release create v<version> \
