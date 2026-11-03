@@ -20,7 +20,13 @@ import {
   getTrukiSelectedChatId,
 } from '../selectors/trukiBridge.std.ts';
 import type { StateType } from '../reducer.preload.ts';
-import { removeTrukiSpace } from '../../services/trukiSpaceMembers.preload.ts';
+import {
+  addTrukiChatToSpace,
+  removeTrukiSpace,
+} from '../../services/trukiSpaceMembers.preload.ts';
+import { setTrukiAddToSpaceOptions } from '../../components/truki/trukiAddToSpaceStore.std.ts';
+import { ChatFolderType } from '../../types/ChatFolder.std.ts';
+import { CurrentChatFolders } from '../../types/CurrentChatFolders.std.ts';
 
 type ModeSpecificProps = LeftPanePropsType['modeSpecificProps'];
 
@@ -72,6 +78,20 @@ export function useTrukiLeftPaneInboxProps(
       }
     })();
   }, [currentChatFolders, spaceMembers]);
+
+  // "Add to Space…" on a bridged chat row lists the custom Spaces.
+  useEffect(() => {
+    setTrukiAddToSpaceOptions({
+      spaces: CurrentChatFolders.toSortedArray(currentChatFolders)
+        .filter(folder => folder.folderType === ChatFolderType.CUSTOM)
+        .map(folder => ({ id: folder.id, name: folder.name })),
+      members: spaceMembers ?? {},
+      onAdd: (spaceId, chatId) => {
+        void addTrukiChatToSpace(spaceId, chatId);
+      },
+    });
+  }, [currentChatFolders, spaceMembers]);
+  useEffect(() => () => setTrukiAddToSpaceOptions(undefined), []);
 
   const disconnectedLoginIds = useMemo(
     () =>

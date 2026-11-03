@@ -54,16 +54,21 @@ export type TrukiSpaceBarProps = Readonly<{
     muteExpiresAt: MuteExpiration
   ) => void;
   onChatFolderOpenSettings: (chatFolderId: ChatFolderId) => void;
+  // Bridged unread per Space id, added to the Signal unread on each badge.
+  trukiUnreadByFolder?: ReadonlyMap<string, number>;
 }>;
 
-function getBadgeValue(
+// The badge on a Space: Signal's unread plus the bridged chats' unread.
+export function getTrukiSpaceBadgeValue(
   unreadStats: UnreadStats | null,
-  unreadCountBadgeType: UnreadCountBadgeType
+  unreadCountBadgeType: UnreadCountBadgeType,
+  bridgedUnread: number | undefined
 ): number | null {
-  if (unreadStats == null) {
-    return null;
-  }
-  const total = getUnreadCountForBadge(unreadStats, unreadCountBadgeType);
+  const signalTotal =
+    unreadStats == null
+      ? 0
+      : getUnreadCountForBadge(unreadStats, unreadCountBadgeType);
+  const total = signalTotal + (bridgedUnread ?? 0);
   return total > 0 ? total : null;
 }
 
@@ -171,6 +176,7 @@ export function TrukiSpaceBar(props: TrukiSpaceBarProps): JSX.Element | null {
                   i18n={i18n}
                   chatFolder={chatFolder}
                   unreadStats={unreadStats}
+                  bridgedUnread={props.trukiUnreadByFolder?.get(chatFolder.id)}
                   unreadCountBadgeType={props.unreadCountBadgeType}
                 />
               );
@@ -209,6 +215,7 @@ export function TrukiSpaceBar(props: TrukiSpaceBarProps): JSX.Element | null {
               i18n={i18n}
               chatFolder={chatFolder}
               unreadStats={unreadStats}
+              bridgedUnread={props.trukiUnreadByFolder?.get(chatFolder.id)}
               unreadCountBadgeType={props.unreadCountBadgeType}
               mutedStats={mutedStats}
               isSelected={props.selectedChatFolder?.id === chatFolder.id}
@@ -228,13 +235,18 @@ function ChatFolderSelectItem(props: {
   i18n: LocalizerType;
   chatFolder: ChatFolder;
   unreadStats: UnreadStats | null;
+  bridgedUnread: number | undefined;
   unreadCountBadgeType: UnreadCountBadgeType;
 }): JSX.Element {
-  const { i18n, unreadStats, unreadCountBadgeType } = props;
+  const { i18n, unreadStats, bridgedUnread, unreadCountBadgeType } = props;
 
   const badgeValue = useMemo(() => {
-    return getBadgeValue(unreadStats, unreadCountBadgeType);
-  }, [unreadStats, unreadCountBadgeType]);
+    return getTrukiSpaceBadgeValue(
+      unreadStats,
+      unreadCountBadgeType,
+      bridgedUnread
+    );
+  }, [unreadStats, bridgedUnread, unreadCountBadgeType]);
 
   return (
     <AxoSelect.Item
@@ -264,6 +276,7 @@ function TrukiSpaceBarItem(props: {
   i18n: LocalizerType;
   chatFolder: ChatFolder;
   unreadStats: UnreadStats | null;
+  bridgedUnread: number | undefined;
   unreadCountBadgeType: UnreadCountBadgeType;
   mutedStats: MutedStats | null;
   isSelected: boolean;
@@ -280,8 +293,12 @@ function TrukiSpaceBarItem(props: {
   const icon = getSpaceIcon(chatFolder, label);
 
   const badgeValue = useMemo(() => {
-    return getBadgeValue(props.unreadStats, props.unreadCountBadgeType);
-  }, [props.unreadCountBadgeType, props.unreadStats]);
+    return getTrukiSpaceBadgeValue(
+      props.unreadStats,
+      props.unreadCountBadgeType,
+      props.bridgedUnread
+    );
+  }, [props.unreadCountBadgeType, props.unreadStats, props.bridgedUnread]);
 
   const handleClick = useCallback(() => {
     onSelect(chatFolder.id);

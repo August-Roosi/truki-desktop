@@ -17,6 +17,7 @@ import { getCurrentChatFolders } from '../selectors/chatFolders.std.ts';
 import { useNavActions } from '../ducks/nav.std.ts';
 import type { Location } from '../../types/Nav.std.ts';
 import { CurrentChatFolders } from '../../types/CurrentChatFolders.std.ts';
+import { useTrukiSpaceMembersEditor } from './useTrukiSpaceMembersEditor.preload.tsx';
 
 export type SmartPreferencesEditChatFolderPageProps = Readonly<{
   previousLocation: Location | null;
@@ -51,6 +52,13 @@ export function SmartPreferencesEditChatFolderPage(
     );
   }, [currentChatFolders, existingChatFolderId, initChatFolderParams]);
 
+  const truki = useTrukiSpaceMembersEditor({
+    existingChatFolderId,
+    initChatFolderParams: initChatFolderParamsOrCurrentChatFolder,
+    onCreateChatFolder: createChatFolder,
+    onUpdateChatFolder: updateChatFolder,
+  });
+
   return (
     <PreferencesEditChatFolderPage
       i18n={i18n}
@@ -63,8 +71,10 @@ export function SmartPreferencesEditChatFolderPage(
       theme={theme}
       settingsPaneRef={props.settingsPaneRef}
       conversationSelector={conversationSelector}
-      onCreateChatFolder={createChatFolder}
-      onUpdateChatFolder={updateChatFolder}
+      onCreateChatFolder={truki.onCreateChatFolder}
+      onUpdateChatFolder={truki.onUpdateChatFolder}
+      trukiSpaceMembersSection={truki.section}
+      trukiSpaceMembersDirty={truki.dirty}
       onDeleteChatFolder={deleteChatFolder}
     />
   );

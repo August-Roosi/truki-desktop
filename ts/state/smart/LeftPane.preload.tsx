@@ -124,6 +124,7 @@ import OS from '../../util/os/osPreload.preload.ts';
 import { useNavActions } from '../ducks/nav.std.ts';
 import { SmartLeftPaneChatFolders } from './LeftPaneChatFolders.preload.tsx';
 import { TrukiSpaceBar } from '../../components/leftPane/TrukiSpaceBar.dom.tsx';
+import { getTrukiUnreadCountByFolder } from '../selectors/trukiBridge.std.ts';
 import { NavSidebarWidthBreakpointContext } from '../../components/NavSidebar.dom.tsx';
 import { SmartLeftPaneConversationListItemContextMenu } from './LeftPaneConversationListItemContextMenu.preload.tsx';
 import type { RenderConversationListItemContextMenuProps } from '../../components/conversationList/BaseConversationListItem.dom.tsx';
@@ -200,6 +201,7 @@ const SmartTrukiSpaceBar = memo(function SmartTrukiSpaceBar() {
   const allChatFoldersUnreadStats = useSelector(getAllChatFoldersUnreadStats);
   const allChatFoldersMutedStats = useSelector(getAllChatFoldersMutedStats);
   const unreadCountBadgeType = useSelector(getUnreadCountBadgeType);
+  const trukiUnreadByFolder = useSelector(getTrukiUnreadCountByFolder);
   const selectedChatFolder = useSelector(getSelectedChatFolder);
   const navSidebarWidthBreakpoint = useContext(
     NavSidebarWidthBreakpointContext
@@ -234,6 +236,7 @@ const SmartTrukiSpaceBar = memo(function SmartTrukiSpaceBar() {
       allChatFoldersUnreadStats={allChatFoldersUnreadStats}
       allChatFoldersMutedStats={allChatFoldersMutedStats}
       unreadCountBadgeType={unreadCountBadgeType}
+      trukiUnreadByFolder={trukiUnreadByFolder}
       selectedChatFolder={selectedChatFolder}
       onSelectedChatFolderIdChange={updateSelectedChatFolderId}
       onChatFolderMarkRead={markChatFolderRead}

@@ -11,6 +11,8 @@ import { tw } from '../../axo/tw.dom.tsx';
 import type { TrukiBridgedChatSummary } from '../../state/ducks/trukiBridge.preload.ts';
 import { AvatarColors, type AvatarColorType } from '../../types/Colors.std.ts';
 import type { LocalizerType } from '../../types/Util.std.ts';
+import { trukiChatInSpace } from '../../types/TrukiSpaceBridgedMembers.std.ts';
+import { useTrukiAddToSpaceOptions } from './trukiAddToSpaceStore.std.ts';
 import { BaseConversationListItem } from '../conversationList/BaseConversationListItem.dom.tsx';
 
 // What a ConversationList row carries for a bridged chat (see
@@ -101,6 +103,7 @@ export const TrukiBridgedChatRow = memo(function TrukiBridgedChatRow({
   const handleMarkRead = useCallback(() => {
     onMarkRead?.(chat.id);
   }, [onMarkRead, chat.id]);
+  const addToSpace = useTrukiAddToSpaceOptions();
   const handleToggleMute = useCallback(() => {
     onSetMuted?.(chat.id, !isMuted);
   }, [onSetMuted, chat.id, isMuted]);
@@ -133,7 +136,8 @@ export const TrukiBridgedChatRow = memo(function TrukiBridgedChatRow({
 
   const renderContextMenu = useCallback(
     ({ children }: Readonly<{ children: ReactNode }>): JSX.Element => {
-      if (!onMarkRead && !onSetMuted) {
+      const addToSpaceSpaces = addToSpace?.spaces ?? [];
+      if (!onMarkRead && !onSetMuted && addToSpaceSpaces.length === 0) {
         return <>{children}</>;
       }
       return (
@@ -161,13 +165,34 @@ export const TrukiBridgedChatRow = memo(function TrukiBridgedChatRow({
                   {i18n('icu:muteNotificationsTitle')}
                 </AxoContextMenu.Item>
               ))}
+            {addToSpace != null && addToSpaceSpaces.length > 0 && (
+              <AxoContextMenu.Sub>
+                <AxoContextMenu.SubTrigger symbol="folder">
+                  {i18n('icu:TrukiBridgedChatRow__AddToSpace')}
+                </AxoContextMenu.SubTrigger>
+                <AxoContextMenu.SubContent>
+                  {addToSpaceSpaces.map(space => (
+                    <AxoContextMenu.Item
+                      key={space.id}
+                      disabled={trukiChatInSpace(
+                        chat,
+                        addToSpace.members[space.id]
+                      )}
+                      onSelect={() => addToSpace.onAdd(space.id, chat.id)}
+                    >
+                      {space.name}
+                    </AxoContextMenu.Item>
+                  ))}
+                </AxoContextMenu.SubContent>
+              </AxoContextMenu.Sub>
+            )}
           </AxoContextMenu.Content>
         </AxoContextMenu.Root>
       );
     },
     [
-      chat.lastEventId,
-      chat.unreadCount,
+      addToSpace,
+      chat,
       handleMarkRead,
       handleToggleMute,
       i18n,

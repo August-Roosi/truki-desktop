@@ -72,6 +72,9 @@ export type PreferencesEditChatFolderPageProps = Readonly<{
     chatFolderId: ChatFolderId,
     chatFolderParams: ChatFolderParams
   ) => void;
+  // Truki: the "Other networks" section, and whether it has unsaved changes.
+  trukiSpaceMembersSection?: JSX.Element;
+  trukiSpaceMembersDirty?: boolean;
 }>;
 
 export function PreferencesEditChatFolderPage(
@@ -106,11 +109,14 @@ export function PreferencesEditChatFolderPage(
   }, [chatFolderParams]);
 
   const isChanged = useMemo(() => {
+    if (props.trukiSpaceMembersDirty) {
+      return true;
+    }
     return !isSameChatFolderParams(
       initChatFolderParams,
       normalizedChatFolderParams
     );
-  }, [initChatFolderParams, normalizedChatFolderParams]);
+  }, [initChatFolderParams, normalizedChatFolderParams, props.trukiSpaceMembersDirty]);
 
   const didSaveOrDiscardChangesRef = useRef(false);
 
@@ -345,6 +351,7 @@ export function PreferencesEditChatFolderPage(
           </SettingsRow>
           {!isAllChatFolder && (
             <>
+          {props.trukiSpaceMembersSection}
           <SettingsRow
             title={i18n(
               'icu:Preferences__EditChatFolderPage__IncludedChatsSection__Title'

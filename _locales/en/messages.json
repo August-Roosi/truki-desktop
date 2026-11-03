@@ -475,6 +475,26 @@
     "messageformat": "This account is disconnected",
     "description": "Truki inbox > chat list > bridged chat row > tooltip on the grey network badge when the chat's account is not connected"
   },
+  "icu:TrukiBridgedChatRow__AddToSpace": {
+    "messageformat": "Add to Space…",
+    "description": "Truki inbox > chat list > bridged chat row > context menu item that opens a list of Spaces to add the chat to"
+  },
+  "icu:TrukiSpaceOtherNetworks__Title": {
+    "messageformat": "Other networks",
+    "description": "Truki Spaces > Space editor > section title for choosing bridged (WhatsApp, Messenger, Instagram) chats in this Space"
+  },
+  "icu:TrukiSpaceOtherNetworks__AllChats": {
+    "messageformat": "All {network} chats",
+    "description": "Truki Spaces > Space editor > checkbox label that adds every chat of one network to the Space. {network} is the network name, e.g. WhatsApp"
+  },
+  "icu:TrukiSpaceOtherNetworks__SearchPlaceholder": {
+    "messageformat": "Search chats",
+    "description": "Truki Spaces > Space editor > placeholder of the search field above the list of individual bridged chats"
+  },
+  "icu:TrukiSpaceOtherNetworks__NoResults": {
+    "messageformat": "No chats found",
+    "description": "Truki Spaces > Space editor > shown when the chat search matches no bridged chat"
+  },
   "icu:TrukiBridgedConversation__Unavailable": {
     "messageformat": "This chat is no longer available",
     "description": "Truki inbox > bridged conversation > shown in the conversation panel when the selected bridged chat is gone from the bridge"
