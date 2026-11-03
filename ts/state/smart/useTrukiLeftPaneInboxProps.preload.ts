@@ -11,10 +11,16 @@ import { trukiSelectBridgedChat } from '../../util/trukiBridgedSelection.std.ts'
 import { useConversationsActions } from '../ducks/conversations.preload.ts';
 import { useTrukiBridgeActions } from '../ducks/trukiBridge.preload.ts';
 import {
+  getCurrentChatFolders,
+  getSelectedChatFolder,
+} from '../selectors/chatFolders.std.ts';
+import {
   getTrukiBridge,
-  getTrukiChatList,
+  getTrukiChatListForFolder,
   getTrukiSelectedChatId,
 } from '../selectors/trukiBridge.std.ts';
+import type { StateType } from '../reducer.preload.ts';
+import { removeTrukiSpace } from '../../services/trukiSpaceMembers.preload.ts';
 
 type ModeSpecificProps = LeftPanePropsType['modeSpecificProps'];
 
@@ -27,10 +33,17 @@ export const TRUKI_MUTED_FOREVER = Date.UTC(9999, 11, 31);
 export function useTrukiLeftPaneInboxProps(
   modeSpecificProps: ModeSpecificProps
 ): ModeSpecificProps {
-  // Unfiltered until Spaces filter bridged chats (Task 11).
-  const chats = useSelector(getTrukiChatList);
+  // Bridged chats of the selected Space (General when nothing is selected).
+  const selectedChatFolder = useSelector(getSelectedChatFolder);
+  const chats = useSelector((state: StateType) =>
+    getTrukiChatListForFolder(state, selectedChatFolder)
+  );
   const selectedChatId = useSelector(getTrukiSelectedChatId);
   const accounts = useSelector(getTrukiBridge).accounts;
+  const currentChatFolders = useSelector(getCurrentChatFolders);
+  const spaceMembers = useSelector(
+    (state: StateType) => state.items.trukiSpaceBridgedMembers
+  );
   const { trukiBridgeStart, selectBridgedChat, markRead, setMuted } =
     useTrukiBridgeActions();
   const { showConversation } = useConversationsActions();
@@ -38,6 +51,27 @@ export function useTrukiLeftPaneInboxProps(
   useEffect(() => {
     trukiBridgeStart();
   }, [trukiBridgeStart]);
+
+  // Deleting a Space has no action to subscribe to — deletions arrive as a
+  // replacement of the folder list — so prune member entries for folder ids
+  // that vanished whenever the folder list changes.
+  useEffect(() => {
+    const folderIds = new Set<string>(currentChatFolders.order);
+    const vanishedFolderIds = Object.keys(spaceMembers ?? {}).filter(
+      folderId => !folderIds.has(folderId)
+    );
+    if (vanishedFolderIds.length === 0) {
+      return;
+    }
+    void (async () => {
+      for (const folderId of vanishedFolderIds) {
+        // Sequential on purpose: each removal re-reads the store, so
+        // parallel puts would race over the same item.
+        // oxlint-disable-next-line no-await-in-loop
+        await removeTrukiSpace(folderId);
+      }
+    })();
+  }, [currentChatFolders, spaceMembers]);
 
   const disconnectedLoginIds = useMemo(
     () =>

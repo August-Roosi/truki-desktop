@@ -27,6 +27,7 @@ import type { NotificationProfileOverride } from './NotificationProfile.std.ts';
 import type { PhoneNumberSharingMode } from './PhoneNumberSharingMode.std.ts';
 import type { LocalBackupExportMetadata } from './LocalExport.std.ts';
 import type { ServerAlertsType } from './ServerAlert.std.ts';
+import type { TrukiSpaceBridgedMembers } from './TrukiSpaceBridgedMembers.std.ts';
 import type { AssertSameMembers } from './Util.std.ts';
 import type { Emoji } from '../axo/emoji.std.ts';
 import type { PartialRegistrationType } from './StandaloneRegistration.std.ts';
@@ -350,6 +351,9 @@ export type StorageAccessType = {
   // Truki: networks whose ban-risk warning the user accepted.
   trukiBridgeBanRiskAccepted: ReadonlyArray<string>;
 
+  // Truki: bridged chats assigned to each Space (chat folder).
+  trukiSpaceBridgedMembers: TrukiSpaceBridgedMembers;
+
   // Deprecated
   'challenge:retry-message-ids': never;
   nextSignedKeyRotationTime: number;
@@ -465,6 +469,7 @@ export const STORAGE_KEYS_TO_PRESERVE_AFTER_UNLINK = [
   'defaultAutoBubbleColor',
   'restoredBackupFirstAppVersion',
   'trukiBridgeBanRiskAccepted',
+  'trukiSpaceBridgedMembers',
 ] as const satisfies ReadonlyArray<keyof StorageAccessType>;
 
 export const STORAGE_KEYS_TO_PRESERVE_WHEN_PRIMARY = [
