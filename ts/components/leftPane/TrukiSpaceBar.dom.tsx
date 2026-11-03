@@ -33,6 +33,7 @@ import type {
   UnreadStats,
 } from '../../util/countUnreadStats.std.ts';
 import { getUnreadCountForBadge } from '../../util/countUnreadStats.std.ts';
+import type { TrukiBridgedUnread } from '../../state/selectors/trukiBridge.std.ts';
 import { getMuteValuesOptions } from '../../util/getMuteOptions.std.ts';
 import * as grapheme from '../../util/grapheme.std.ts';
 import { WidthBreakpoint } from '../_util.std.ts';
@@ -55,20 +56,25 @@ export type TrukiSpaceBarProps = Readonly<{
   ) => void;
   onChatFolderOpenSettings: (chatFolderId: ChatFolderId) => void;
   // Bridged unread per Space id, added to the Signal unread on each badge.
-  trukiUnreadByFolder?: ReadonlyMap<string, number>;
+  trukiUnreadByFolder?: ReadonlyMap<string, TrukiBridgedUnread>;
 }>;
 
 // The badge on a Space: Signal's unread plus the bridged chats' unread.
 export function getTrukiSpaceBadgeValue(
   unreadStats: UnreadStats | null,
   unreadCountBadgeType: UnreadCountBadgeType,
-  bridgedUnread: number | undefined
+  bridgedUnread: TrukiBridgedUnread | undefined
 ): number | null {
   const signalTotal =
     unreadStats == null
       ? 0
       : getUnreadCountForBadge(unreadStats, unreadCountBadgeType);
-  const total = signalTotal + (bridgedUnread ?? 0);
+  // Same unit as Signal's count: chats with unread, or unread messages.
+  const bridgedTotal =
+    unreadCountBadgeType === 'unread-chats'
+      ? (bridgedUnread?.chats ?? 0)
+      : (bridgedUnread?.messages ?? 0);
+  const total = signalTotal + bridgedTotal;
   return total > 0 ? total : null;
 }
 
@@ -235,7 +241,7 @@ function ChatFolderSelectItem(props: {
   i18n: LocalizerType;
   chatFolder: ChatFolder;
   unreadStats: UnreadStats | null;
-  bridgedUnread: number | undefined;
+  bridgedUnread: TrukiBridgedUnread | undefined;
   unreadCountBadgeType: UnreadCountBadgeType;
 }): JSX.Element {
   const { i18n, unreadStats, bridgedUnread, unreadCountBadgeType } = props;
@@ -276,7 +282,7 @@ function TrukiSpaceBarItem(props: {
   i18n: LocalizerType;
   chatFolder: ChatFolder;
   unreadStats: UnreadStats | null;
-  bridgedUnread: number | undefined;
+  bridgedUnread: TrukiBridgedUnread | undefined;
   unreadCountBadgeType: UnreadCountBadgeType;
   mutedStats: MutedStats | null;
   isSelected: boolean;

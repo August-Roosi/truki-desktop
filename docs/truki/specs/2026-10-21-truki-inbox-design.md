@@ -252,6 +252,7 @@ Space…" writes the same store.
 | `ts/types/Nav.std.ts` | `SettingsPage.TrukiConnectedAccounts` |
 | `ts/types/StorageKeys.std.ts` | `trukiSpaceBridgedMembers` and `trukiBridgeBanRiskAccepted` keys |
 | `ts/components/preferences/chatFolders/PreferencesEditChatFoldersPage.dom.tsx` | insert `TrukiSpaceOtherNetworks` |
+| `ts/state/smart/PreferencesEditChatFolderPage.preload.tsx` | Truki hook + one `{...trukiProps}` spread passing the Space-members section and wrapped create/update |
 | `app/main.main.ts` | `truki-media` entry in `registerSchemesAsPrivileged` |
 | `background.html` | `truki-media:` added to the img-src and media-src CSP lists |
 

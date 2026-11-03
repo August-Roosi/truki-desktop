@@ -64,3 +64,46 @@ export function getTrukiConnectedNetworks(
   }
   return result.sort((a, b) => a.name.localeCompare(b.name));
 }
+
+type CreateSpace<P> = (params: P, showToastOnSuccess: boolean) => void;
+type UpdateSpace<P> = (id: string, params: P) => void;
+
+// The Space editor's create/update handlers. With nothing of Truki's to save
+// they ARE upstream's handlers, called with the same arguments; only a
+// dirty members draft makes them do more.
+export function createTrukiSpaceSaveHandlers<P>(options: {
+  dirty: boolean;
+  draft: TrukiSpaceMembersEntry;
+  initParams: P;
+  isSameParams: (a: P, b: P) => boolean;
+  upstreamCreate: CreateSpace<P>;
+  upstreamUpdate: UpdateSpace<P>;
+  // Creates the Space, then writes the draft under its new id.
+  saveNewSpace: (
+    create: () => unknown,
+    members: TrukiSpaceMembersEntry
+  ) => void;
+  setMembers: (id: string, members: TrukiSpaceMembersEntry) => void;
+}): { onCreate: CreateSpace<P>; onUpdate: UpdateSpace<P> } {
+  if (!options.dirty) {
+    return {
+      onCreate: options.upstreamCreate,
+      onUpdate: options.upstreamUpdate,
+    };
+  }
+  return {
+    onCreate: (params, showToastOnSuccess) => {
+      options.saveNewSpace(
+        () => options.upstreamCreate(params, showToastOnSuccess),
+        options.draft
+      );
+    },
+    onUpdate: (id, params) => {
+      options.setMembers(id, options.draft);
+      // A members-only edit leaves the Space itself as it was.
+      if (!options.isSameParams(options.initParams, params)) {
+        options.upstreamUpdate(id, params);
+      }
+    },
+  };
+}

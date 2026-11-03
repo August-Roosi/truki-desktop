@@ -1,7 +1,7 @@
 // Copyright 2026 Truki
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { JSX } from 'react';
 import { useSelector, useStore } from 'react-redux';
 
@@ -18,6 +18,7 @@ import type {
 import { isSameChatFolderParams } from '../../types/ChatFolder.std.ts';
 import { CurrentChatFolders } from '../../types/CurrentChatFolders.std.ts';
 import {
+  createTrukiSpaceSaveHandlers,
   EMPTY_TRUKI_SPACE_MEMBERS,
   getTrukiConnectedNetworks,
   isSameTrukiSpaceMembers,
@@ -44,10 +45,11 @@ export function useTrukiSpaceMembersEditor(options: {
   onCreateChatFolder: CreateFn;
   onUpdateChatFolder: UpdateFn;
 }): Readonly<{
-  section: JSX.Element;
-  dirty: boolean;
-  onCreateChatFolder: CreateFn;
-  onUpdateChatFolder: UpdateFn;
+  // Optional so that spreading these after upstream's own props is legal.
+  onCreateChatFolder?: CreateFn;
+  onUpdateChatFolder?: UpdateFn;
+  trukiSpaceMembersSection: JSX.Element;
+  trukiSpaceMembersDirty: boolean;
 }> {
   const {
     existingChatFolderId,
@@ -75,38 +77,43 @@ export function useTrukiSpaceMembersEditor(options: {
     [bridge.accounts, bridge.networks]
   );
 
-  const handleCreate = useCallback<CreateFn>(
-    (params, showToastOnSuccess) => {
-      if (!dirty) {
-        onCreateChatFolder(params, showToastOnSuccess);
-        return;
-      }
-      const folderIds = (): ReadonlyArray<string> =>
-        CurrentChatFolders.toSortedArray(
-          getCurrentChatFolders(store.getState())
-        ).map(folder => folder.id);
-      void saveTrukiMembersForNewSpace({
-        knownFolderIds: new Set(folderIds()),
-        create: () => onCreateChatFolder(params, showToastOnSuccess),
-        getFolderIds: folderIds,
-        subscribe: callback => store.subscribe(callback),
-        members: draft,
-      });
-    },
-    [dirty, draft, onCreateChatFolder, store]
-  );
-
-  const handleUpdate = useCallback<UpdateFn>(
-    (id, params) => {
-      if (dirty) {
-        void setTrukiSpaceMembers(id, draft);
-      }
-      // Members-only changes leave the Space itself as it was.
-      if (!isSameChatFolderParams(initChatFolderParams, params)) {
-        onUpdateChatFolder(id, params);
-      }
-    },
-    [dirty, draft, initChatFolderParams, onUpdateChatFolder]
+  const handlers = useMemo(
+    () =>
+      createTrukiSpaceSaveHandlers<ChatFolderParams>({
+        dirty,
+        draft,
+        initParams: initChatFolderParams,
+        isSameParams: isSameChatFolderParams,
+        upstreamCreate: onCreateChatFolder,
+        upstreamUpdate: onUpdateChatFolder as (
+          id: string,
+          params: ChatFolderParams
+        ) => void,
+        saveNewSpace: (create, members) => {
+          const folderIds = (): ReadonlyArray<string> =>
+            CurrentChatFolders.toSortedArray(
+              getCurrentChatFolders(store.getState())
+            ).map(folder => folder.id);
+          void saveTrukiMembersForNewSpace({
+            knownFolderIds: new Set(folderIds()),
+            create,
+            getFolderIds: folderIds,
+            subscribe: callback => store.subscribe(callback),
+            members,
+          });
+        },
+        setMembers: (id, members) => {
+          void setTrukiSpaceMembers(id, members);
+        },
+      }),
+    [
+      dirty,
+      draft,
+      initChatFolderParams,
+      onCreateChatFolder,
+      onUpdateChatFolder,
+      store,
+    ]
   );
 
   const section = (
@@ -120,9 +127,9 @@ export function useTrukiSpaceMembersEditor(options: {
   );
 
   return {
-    section,
-    dirty,
-    onCreateChatFolder: handleCreate,
-    onUpdateChatFolder: handleUpdate,
+    onCreateChatFolder: handlers.onCreate,
+    onUpdateChatFolder: handlers.onUpdate,
+    trukiSpaceMembersSection: section,
+    trukiSpaceMembersDirty: dirty,
   };
 }

@@ -33,6 +33,7 @@ import {
 } from '../../types/ChatFolder.std.ts';
 import type { TrukiSpaceBridgedMembers } from '../../types/TrukiSpaceBridgedMembers.std.ts';
 import {
+  createTrukiSpaceSaveHandlers,
   EMPTY_TRUKI_SPACE_MEMBERS,
   getTrukiConnectedNetworks,
   isSameTrukiSpaceMembers,
@@ -340,6 +341,7 @@ describe('trukiSpaceEditor', () => {
       'wa-1': chat('wa-1', { unreadCount: 2 }),
       'wa-2': chat('wa-2', { unreadCount: 1 }),
       'm-1': chat('m-1', { network: 'meta', unreadCount: 3 }),
+      'wa-3': chat('wa-3', { unreadCount: 0 }),
     };
     const members: TrukiSpaceBridgedMembers = {
       f1: { chatIds: ['wa-1'], networks: ['meta'] },
@@ -347,18 +349,19 @@ describe('trukiSpaceEditor', () => {
     const all = folder('all', { folderType: ChatFolderType.ALL });
     const f1 = folder('f1', { hideFromAllChats: true });
 
-    it('computes every Space in one map, for General and custom Spaces', () => {
+    it('computes every Space in one map, in messages and chats', () => {
       const state = rootState(chats, members, [all, f1]);
       const map = getTrukiUnreadCountByFolder(state);
-      assert.strictEqual(map.get('f1'), 5);
+      assert.deepEqual(map.get('f1'), { messages: 5, chats: 2 });
       // wa-1 and m-1 are claimed by f1, which hides them from General.
-      assert.strictEqual(map.get('all'), 1);
+      assert.deepEqual(map.get('all'), { messages: 1, chats: 1 });
       assert.strictEqual(getTrukiUnreadCountByFolder(state), map);
     });
 
-    it('badge value is Signal unread plus bridged unread', () => {
-      const state = rootState(chats, members, [all, f1]);
-      const map = getTrukiUnreadCountByFolder(state);
+    it('unread-messages: Signal messages plus bridged messages', () => {
+      const map = getTrukiUnreadCountByFolder(
+        rootState(chats, members, [all, f1])
+      );
       assert.strictEqual(
         getTrukiSpaceBadgeValue(stats(4, 2), 'unread-messages', map.get('f1')),
         9
@@ -369,15 +372,105 @@ describe('trukiSpaceEditor', () => {
       );
     });
 
+    it('unread-chats: Signal chats plus bridged chats, not messages', () => {
+      const map = getTrukiUnreadCountByFolder(
+        rootState(chats, members, [all, f1])
+      );
+      assert.strictEqual(
+        getTrukiSpaceBadgeValue(stats(4, 2), 'unread-chats', map.get('f1')),
+        4
+      );
+      assert.strictEqual(
+        getTrukiSpaceBadgeValue(stats(0, 2), 'unread-chats', {
+          messages: 30,
+          chats: 1,
+        }),
+        3
+      );
+    });
+
     it('shows the bridged count alone when Signal has none, and null for zero', () => {
       assert.strictEqual(
-        getTrukiSpaceBadgeValue(null, 'unread-messages', 3),
+        getTrukiSpaceBadgeValue(null, 'unread-messages', {
+          messages: 3,
+          chats: 1,
+        }),
         3
       );
       assert.isNull(
         getTrukiSpaceBadgeValue(null, 'unread-messages', undefined)
       );
-      assert.isNull(getTrukiSpaceBadgeValue(stats(0, 0), 'unread-messages', 0));
+      assert.isNull(
+        getTrukiSpaceBadgeValue(stats(0, 0), 'unread-chats', {
+          messages: 0,
+          chats: 0,
+        })
+      );
+    });
+  });
+
+  describe('createTrukiSpaceSaveHandlers', () => {
+    const draft = { chatIds: ['c1'], networks: [] };
+    const initParams = { name: 'a' };
+    const isSameParams = (a: { name: string }, b: { name: string }) =>
+      a.name === b.name;
+
+    function setup(dirty: boolean) {
+      const calls = {
+        create: sinon.stub(),
+        update: sinon.stub(),
+        saveNew: sinon.stub(),
+        setMembers: sinon.stub(),
+      };
+      const handlers = createTrukiSpaceSaveHandlers({
+        dirty,
+        draft,
+        initParams,
+        isSameParams,
+        upstreamCreate: calls.create,
+        upstreamUpdate: calls.update,
+        saveNewSpace: calls.saveNew,
+        setMembers: calls.setMembers,
+      });
+      return { calls, handlers };
+    }
+
+    it('not dirty: create is upstream with the same arguments', () => {
+      const { calls, handlers } = setup(false);
+      handlers.onCreate({ name: 'x' }, true);
+      assert.isTrue(calls.create.calledOnceWithExactly({ name: 'x' }, true));
+      assert.isFalse(calls.saveNew.called);
+    });
+
+    it('not dirty: update is upstream even when params are unchanged', () => {
+      const { calls, handlers } = setup(false);
+      handlers.onUpdate('f1', { name: 'a' });
+      assert.isTrue(calls.update.calledOnceWithExactly('f1', { name: 'a' }));
+      assert.isFalse(calls.setMembers.called);
+    });
+
+    it('dirty edit: writes members and updates upstream when params changed', () => {
+      const { calls, handlers } = setup(true);
+      handlers.onUpdate('f1', { name: 'b' });
+      assert.isTrue(calls.setMembers.calledOnceWithExactly('f1', draft));
+      assert.isTrue(calls.update.calledOnceWithExactly('f1', { name: 'b' }));
+    });
+
+    it('dirty members-only edit: no upstream update', () => {
+      const { calls, handlers } = setup(true);
+      handlers.onUpdate('f1', { name: 'a' });
+      assert.isTrue(calls.setMembers.calledOnceWithExactly('f1', draft));
+      assert.isFalse(calls.update.called);
+    });
+
+    it('dirty create: saves the draft around the upstream create', () => {
+      const { calls, handlers } = setup(true);
+      handlers.onCreate({ name: 'x' }, false);
+      assert.isFalse(calls.create.called);
+      const [create, members] = calls.saveNew.firstCall.args;
+      assert.strictEqual(members, draft);
+      create();
+      assert.isTrue(calls.create.calledOnceWithExactly({ name: 'x' }, false));
     });
   });
 });

@@ -93,17 +93,21 @@ export const getTrukiUnreadCountForFolder: (
   chats.reduce((total, chat) => total + chat.unreadCount, 0)
 );
 
+// Bridged unread in both units the Space badge can show: messages, or the
+// number of chats with something unread.
+export type TrukiBridgedUnread = Readonly<{ messages: number; chats: number }>;
+
 // Bridged unread for every Space in one pass, keyed by folder id (General
 // included). The Space bar adds these to the unread stats Signal computes.
 export const getTrukiUnreadCountByFolder: (
   s: StateType
-) => ReadonlyMap<string, number> = createSelector(
+) => ReadonlyMap<string, TrukiBridgedUnread> = createSelector(
   getTrukiChatList,
   getTrukiSpaceBridgedMembers,
   getHidingChatFolders,
   getCurrentChatFolders,
   (chats, members, hidingChatFolders, currentChatFolders) => {
-    const result = new Map<string, number>();
+    const result = new Map<string, TrukiBridgedUnread>();
     for (const folder of CurrentChatFolders.toSortedArray(currentChatFolders)) {
       const visible = getChatsForFolder(
         folder,
@@ -111,10 +115,10 @@ export const getTrukiUnreadCountByFolder: (
         members,
         hidingChatFolders
       );
-      result.set(
-        folder.id,
-        visible.reduce((total, chat) => total + chat.unreadCount, 0)
-      );
+      result.set(folder.id, {
+        messages: visible.reduce((total, chat) => total + chat.unreadCount, 0),
+        chats: visible.filter(chat => chat.unreadCount > 0).length,
+      });
     }
     return result;
   }

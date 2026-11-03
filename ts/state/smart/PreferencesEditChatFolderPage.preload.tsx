@@ -52,7 +52,7 @@ export function SmartPreferencesEditChatFolderPage(
     );
   }, [currentChatFolders, existingChatFolderId, initChatFolderParams]);
 
-  const truki = useTrukiSpaceMembersEditor({
+  const trukiProps = useTrukiSpaceMembersEditor({
     existingChatFolderId,
     initChatFolderParams: initChatFolderParamsOrCurrentChatFolder,
     onCreateChatFolder: createChatFolder,
@@ -71,11 +71,10 @@ export function SmartPreferencesEditChatFolderPage(
       theme={theme}
       settingsPaneRef={props.settingsPaneRef}
       conversationSelector={conversationSelector}
-      onCreateChatFolder={truki.onCreateChatFolder}
-      onUpdateChatFolder={truki.onUpdateChatFolder}
-      trukiSpaceMembersSection={truki.section}
-      trukiSpaceMembersDirty={truki.dirty}
+      onCreateChatFolder={createChatFolder}
+      onUpdateChatFolder={updateChatFolder}
       onDeleteChatFolder={deleteChatFolder}
+      {...trukiProps}
     />
   );
 }
