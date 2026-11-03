@@ -6,7 +6,7 @@ import { useSelector } from 'react-redux';
 
 import type { PropsType as LeftPanePropsType } from '../../components/LeftPane.dom.tsx';
 import { LeftPaneMode } from '../../types/leftPane.std.ts';
-import { isTrukiAccountDisconnected } from '../../util/trukiAccountState.std.ts';
+import { getTrukiDisconnectedLoginIds } from '../../util/trukiAccountState.std.ts';
 import { trukiSelectBridgedChat } from '../../util/trukiBridgedSelection.std.ts';
 import { useConversationsActions } from '../ducks/conversations.preload.ts';
 import { useTrukiBridgeActions } from '../ducks/trukiBridge.preload.ts';
@@ -45,7 +45,7 @@ export function useTrukiLeftPaneInboxProps(
     getTrukiChatListForFolder(state, selectedChatFolder)
   );
   const selectedChatId = useSelector(getTrukiSelectedChatId);
-  const accounts = useSelector(getTrukiBridge).accounts;
+  const { accounts, bridgeState } = useSelector(getTrukiBridge);
   const currentChatFolders = useSelector(getCurrentChatFolders);
   const spaceMembers = useSelector(
     (state: StateType) => state.items.trukiSpaceBridgedMembers
@@ -94,11 +94,8 @@ export function useTrukiLeftPaneInboxProps(
   useEffect(() => () => setTrukiAddToSpaceOptions(undefined), []);
 
   const disconnectedLoginIds = useMemo(
-    () =>
-      accounts
-        .filter(account => isTrukiAccountDisconnected(account.state))
-        .map(account => account.loginId),
-    [accounts]
+    () => getTrukiDisconnectedLoginIds({ accounts, bridgeState, chats }),
+    [accounts, bridgeState, chats]
   );
 
   const onSelectTrukiChat = useCallback(

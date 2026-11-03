@@ -54,3 +54,42 @@ export function getTrukiAccountStatusKind(
   // STARTING, CONNECTING, UNKNOWN and anything newer.
   return 'connecting';
 }
+
+// Bridge supervisor states in which no bridged chat can send or receive,
+// whatever its account last reported (spec §7).
+const BRIDGE_DOWN_STATES: ReadonlySet<string> = new Set([
+  'backoff',
+  'gave-up',
+  'unavailable',
+]);
+
+export function isTrukiBridgeDown(bridgeState: string): boolean {
+  return BRIDGE_DOWN_STATES.has(bridgeState);
+}
+
+// The login ids whose chat rows are greyed: those of disconnected accounts,
+// and every chat's login while the bridge itself is down.
+export function getTrukiDisconnectedLoginIds({
+  accounts,
+  bridgeState,
+  chats,
+}: Readonly<{
+  accounts: ReadonlyArray<Readonly<{ loginId: string; state: string }>>;
+  bridgeState: string;
+  chats: ReadonlyArray<Readonly<{ loginId: string }>>;
+}>): ReadonlyArray<string> {
+  const ids = new Set(
+    accounts
+      .filter(account => isTrukiAccountDisconnected(account.state))
+      .map(account => account.loginId)
+  );
+  if (isTrukiBridgeDown(bridgeState)) {
+    for (const account of accounts) {
+      ids.add(account.loginId);
+    }
+    for (const chat of chats) {
+      ids.add(chat.loginId);
+    }
+  }
+  return [...ids];
+}
