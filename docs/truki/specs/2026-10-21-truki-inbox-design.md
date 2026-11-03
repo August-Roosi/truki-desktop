@@ -72,7 +72,7 @@ New duck `ts/state/ducks/trukiBridge.preload.ts` and selectors
 - `chats: Record<chatId, TrukiBridgedChatSummary>` — name, avatar mxc,
   network, loginId, unread, muted, lastActivity, last-message preview.
 - `selectedChatId`, `messagesByChat: Record<chatId, {events, hasOlder,
-  loading}>` — only for chats that have been opened.
+loading}>` — only for chats that have been opened.
 - `loginProcesses: Record<processId, {network, step, seq, error}>`.
 - `spaceMembers` (§6).
 
@@ -97,10 +97,11 @@ exclusive: selecting one clears the other. `ChatsTab` renders
 `ts/components/truki/TrukiBridgedChatRow.dom.tsx`, same geometry as Signal's
 conversation row: avatar with a small network badge (WhatsApp / Messenger /
 Instagram), name, preview, time, unread badge, dimmed when muted, grey badge
-+ tooltip when its account is disconnected. Merged into the inbox list by
-`lastActivity` (ties: Signal chats first, then chat id). Bridged rows are not
-pinnable and are not shown in Signal's archive view or search results in v1.
-Context menu: Mute / Unmute, Add to Space… (§6), Mark read.
+
+- tooltip when its account is disconnected. Merged into the inbox list by
+  `lastActivity` (ties: Signal chats first, then chat id). Bridged rows are not
+  pinnable and are not shown in Signal's archive view or search results in v1.
+  Context menu: Mute / Unmute, Add to Space… (§6), Mark read.
 
 ### 4.2 Conversation view
 
@@ -184,10 +185,13 @@ nav item and render branch in `Preferences.dom.tsx`; the page is
 Truki-owned Signal storage item `trukiSpaceBridgedMembers`:
 
 ```ts
-type TrukiSpaceBridgedMembers = Record<ChatFolderId, {
-  chatIds: ReadonlyArray<string>;      // bridged chat ids (store.Chat.ID)
-  networks: ReadonlyArray<string>;     // 'whatsapp' | 'meta' | 'instagram'
-}>;
+type TrukiSpaceBridgedMembers = Record<
+  ChatFolderId,
+  {
+    chatIds: ReadonlyArray<string>; // bridged chat ids (store.Chat.ID)
+    networks: ReadonlyArray<string>; // 'whatsapp' | 'meta' | 'instagram'
+  }
+>;
 ```
 
 One added key in `ts/types/StorageKeys.std.ts`. Storage items are local; not
@@ -238,23 +242,23 @@ Space…" writes the same store.
 
 ## 8. Upstream edits (complete list)
 
-| File | Change |
-|------|--------|
-| `ts/components/ConversationList.dom.tsx` | `RowType.TrukiBridgedChat` + its row type + render branch |
-| `ts/components/leftPane/LeftPaneInboxHelper.dom.tsx` | merge bridged rows into the inbox list |
-| `ts/state/smart/LeftPane.preload.tsx` | pass bridged chat summaries (filtered by Space) to the helper |
-| `ts/components/ChatsTab.dom.tsx` | optional `trukiSelectedChatId` + `renderTrukiConversation` props; render it instead of the Signal view when set |
-| `ts/state/smart/ChatsTab.preload.tsx` | pass those props; clear the bridged selection when a Signal chat is selected |
-| `ts/state/reducer.preload.ts` | register the `trukiBridge` duck |
-| `ts/state/getInitialState.preload.ts` | `trukiBridge` empty state in `getEmptyState` (the initial state inherits it, and a re-init keeps the existing slice) |
-| `ts/components/Preferences.dom.tsx` | Connected accounts nav item + render branch (optional render prop) |
-| `ts/state/smart/Preferences.preload.tsx` | pass the Connected accounts render prop |
-| `ts/types/Nav.std.ts` | `SettingsPage.TrukiConnectedAccounts` |
-| `ts/types/StorageKeys.std.ts` | `trukiSpaceBridgedMembers` and `trukiBridgeBanRiskAccepted` keys |
-| `ts/components/preferences/chatFolders/PreferencesEditChatFoldersPage.dom.tsx` | insert `TrukiSpaceOtherNetworks` |
-| `ts/state/smart/PreferencesEditChatFolderPage.preload.tsx` | Truki hook + one `{...trukiProps}` spread passing the Space-members section and wrapped create/update |
-| `app/main.main.ts` | `truki-media` entry in `registerSchemesAsPrivileged` |
-| `background.html` | `truki-media:` added to the img-src and media-src CSP lists |
+| File                                                                           | Change                                                                                                               |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `ts/components/ConversationList.dom.tsx`                                       | `RowType.TrukiBridgedChat` + its row type + render branch                                                            |
+| `ts/components/leftPane/LeftPaneInboxHelper.dom.tsx`                           | merge bridged rows into the inbox list                                                                               |
+| `ts/state/smart/LeftPane.preload.tsx`                                          | pass bridged chat summaries (filtered by Space) to the helper                                                        |
+| `ts/components/ChatsTab.dom.tsx`                                               | optional `trukiSelectedChatId` + `renderTrukiConversation` props; render it instead of the Signal view when set      |
+| `ts/state/smart/ChatsTab.preload.tsx`                                          | pass those props; clear the bridged selection when a Signal chat is selected                                         |
+| `ts/state/reducer.preload.ts`                                                  | register the `trukiBridge` duck                                                                                      |
+| `ts/state/getInitialState.preload.ts`                                          | `trukiBridge` empty state in `getEmptyState` (the initial state inherits it, and a re-init keeps the existing slice) |
+| `ts/components/Preferences.dom.tsx`                                            | Connected accounts nav item + render branch (optional render prop)                                                   |
+| `ts/state/smart/Preferences.preload.tsx`                                       | pass the Connected accounts render prop                                                                              |
+| `ts/types/Nav.std.ts`                                                          | `SettingsPage.TrukiConnectedAccounts`                                                                                |
+| `ts/types/StorageKeys.std.ts`                                                  | `trukiSpaceBridgedMembers` and `trukiBridgeBanRiskAccepted` keys                                                     |
+| `ts/components/preferences/chatFolders/PreferencesEditChatFoldersPage.dom.tsx` | insert `TrukiSpaceOtherNetworks`                                                                                     |
+| `ts/state/smart/PreferencesEditChatFolderPage.preload.tsx`                     | Truki hook + one `{...trukiProps}` spread passing the Space-members section and wrapped create/update                |
+| `app/main.main.ts`                                                             | `truki-media` entry in `registerSchemesAsPrivileged`                                                                 |
+| `background.html`                                                              | `truki-media:` added to the img-src and media-src CSP lists                                                          |
 
 Each is an added branch/line; upstream behaviour is unchanged when there are
 no bridged chats. If implementation needs any file not in this table, stop

@@ -108,7 +108,7 @@ gh release create v<version> \
   release/latest.yml
 ```
 
-Sign the installer *during* packaging, never afterwards: `latest.yml` records
+Sign the installer _during_ packaging, never afterwards: `latest.yml` records
 the installer's hash, and signing it later makes the updater reject the build.
 
 Installed copies pick the new release up within about half an hour, or at the

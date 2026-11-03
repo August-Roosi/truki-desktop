@@ -113,9 +113,7 @@ describe('trukiSpaceMembers', () => {
 
       // by network
       assert.isTrue(trukiChatInSpace(chat('m1', { network: 'meta' }), m));
-      assert.isFalse(
-        trukiChatInSpace(chat('wa1', { network: 'whatsapp' }), m)
-      );
+      assert.isFalse(trukiChatInSpace(chat('wa1', { network: 'whatsapp' }), m));
 
       // both rules coexist on one entry
       const both: TrukiSpaceBridgedMembers = {
@@ -293,8 +291,14 @@ describe('trukiSpaceMembers', () => {
         folder('all', { folderType: ChatFolderType.ALL })
       );
 
-      assert.include(list.map(c => c.id), 'wa-3');
-      assert.deepEqual(list.map(c => c.id), ['ig-1', 'wa-2', 'wa-3']);
+      assert.include(
+        list.map(c => c.id),
+        'wa-3'
+      );
+      assert.deepEqual(
+        list.map(c => c.id),
+        ['ig-1', 'wa-2', 'wa-3']
+      );
     });
 
     it('a null folder behaves like the General space', () => {

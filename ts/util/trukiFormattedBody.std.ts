@@ -250,9 +250,7 @@ function cleanHref(rawHref: string | undefined): string | undefined {
   if (rawHref === undefined) {
     return undefined;
   }
-  const cleaned = decodeEntities(rawHref)
-    .trim()
-    .replace(HREF_JUNK_PATTERN, '');
+  const cleaned = decodeEntities(rawHref).trim().replace(HREF_JUNK_PATTERN, '');
   if (!SAFE_HREF_PATTERN.test(cleaned)) {
     return undefined;
   }
@@ -483,9 +481,7 @@ export function truncateTrukiBody(
   }
 
   let remaining = maxLength;
-  const walk = (
-    list: ReadonlyArray<TrukiBodyNode>
-  ): Array<TrukiBodyNode> => {
+  const walk = (list: ReadonlyArray<TrukiBodyNode>): Array<TrukiBodyNode> => {
     const out: Array<TrukiBodyNode> = [];
     for (const node of list) {
       if (remaining <= 0) {

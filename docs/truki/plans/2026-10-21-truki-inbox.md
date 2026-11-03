@@ -78,7 +78,7 @@ ts/test-node/truki/*                                                tests
 **Interfaces:** Produces `store.(*Store).AddTombstone(ctx, room id.RoomID, target id.EventID) error`, `store.(*Store).TakeTombstone(ctx, target id.EventID) (bool, error)`, `store.(*Store).MediaRefCount(ctx, mxc id.ContentURIString) (int, error)`; new table `redaction_tombstone(event_id TEXT PRIMARY KEY, room_id TEXT NOT NULL, created_at INTEGER NOT NULL)`.
 
 - [ ] **Step 1: Failing tests.**
-  - `TestRedactStripsEdits` (trukiconnector): message "secret words" + an `m.replace` edit "* secret words 2" → redact the original → the edit row's content has no `body`/`m.new_content`; `Search("secret")` empty.
+  - `TestRedactStripsEdits` (trukiconnector): message "secret words" + an `m.replace` edit "\* secret words 2" → redact the original → the edit row's content has no `body`/`m.new_content`; `Search("secret")` empty.
   - `TestRedactionBeforeTarget`: redaction for an event id not yet stored → later `SendMessage` storing that id stores it with `Redacted=true` and no body; tombstone consumed.
   - `TestRedactDeletesUnreferencedMedia`: image message, redact → file under `media/` removed; a second event referencing the same mxc keeps the file until both are redacted.
 - [ ] **Step 2: Run** `cd truki-bridge && scripts/test.sh -count=1 ./internal/store/ ./internal/trukiconnector/` → FAIL.
@@ -91,11 +91,17 @@ ts/test-node/truki/*                                                tests
 **Files:** Modify `app/truki/trukiBridgeProtocol.std.ts`, `app/truki/TrukiBridgeSupervisor.main.ts`, its test; upstream `app/main.main.ts` (one array entry).
 
 **Interfaces:** Produces in `trukiBridgeProtocol.std.ts`:
+
 ```ts
 export function mxcToTrukiMediaUrl(mxc: string): string | undefined; // mxc://truki.local/<64hex> → truki-media://truki.local/<64hex>
 export function trukiMediaUrlToMxc(url: string): string | undefined;
-export type TrukiPickAttachmentParams = { chatId: string; caption?: string; replyTo?: string };
+export type TrukiPickAttachmentParams = {
+  chatId: string;
+  caption?: string;
+  replyTo?: string;
+};
 ```
+
 IPC `truki-bridge:pick-attachment` (invoke, params `TrukiPickAttachmentParams`) → `TrukiBridgeIpcResult<{ eventId: string } | { cancelled: true }>`: main shows `dialog.showOpenDialog` (single file), then calls `request('messages.send', { chatId, text: caption ?? '', replyTo, attachments: [{ path, name, mimeType }] })`.
 
 - [ ] **Step 1: Failing tests** (supervisor test file): `mxc round-trip` (valid, uppercase host normalised, rejects other hosts / non-hex / `..`); `pick-attachment cancelled` → `{ok:true,value:{cancelled:true}}` with no bridge request; `pick-attachment sends main-issued path` (dialog stubbed via an injected `showOpenDialog` option) → fake bridge receives `messages.send` with that path.
@@ -109,38 +115,123 @@ IPC `truki-bridge:pick-attachment` (invoke, params `TrukiPickAttachmentParams`) 
 **Files:** Create `ts/services/trukiBridgeClient.preload.ts`, `ts/state/ducks/trukiBridge.preload.ts`, `ts/state/selectors/trukiBridge.std.ts`, `ts/test-node/truki/trukiBridgeDuck_test.*.ts`, `ts/test-node/truki/trukiBridgeSelectors_test.std.ts`. Modify (upstream, one line each per spot) `ts/state/reducer.preload.ts`, `ts/state/actions.preload.ts`, `ts/state/getInitialState.preload.ts` (both the initial-state object and `getEmptyState`).
 
 **Interfaces:**
+
 ```ts
 // trukiBridgeClient.preload.ts
-export function trukiBridgeRequest<T>(method: string, params?: unknown): Promise<TrukiBridgeIpcResult<T>>; // ipcRenderer.invoke('truki-bridge:request', …)
-export function onTrukiBridgeEvent(cb: (e: TrukiBridgeEvent) => void): () => void;
-export function trukiPickAttachment(p: TrukiPickAttachmentParams): Promise<TrukiBridgeIpcResult<{eventId:string}|{cancelled:true}>>;
+export function trukiBridgeRequest<T>(
+  method: string,
+  params?: unknown
+): Promise<TrukiBridgeIpcResult<T>>; // ipcRenderer.invoke('truki-bridge:request', …)
+export function onTrukiBridgeEvent(
+  cb: (e: TrukiBridgeEvent) => void
+): () => void;
+export function trukiPickAttachment(
+  p: TrukiPickAttachmentParams
+): Promise<TrukiBridgeIpcResult<{ eventId: string } | { cancelled: true }>>;
 
 // duck
-export type TrukiBridgedChatSummary = { id: string; network: string; loginId: string; name: string;
-  avatarMxc?: string; isDM: boolean; unreadCount: number; mutedUntil?: number; lastActivity: number;
-  preview?: { text: string; fromMe: boolean } };
-export type TrukiBridgedEvent = { id: string; chatId: string; sender: string; type: string; content: unknown;
-  timestamp: number; streamOrder: number; status: '' | 'pending' | 'sent' | 'failed'; errorCode?: string;
-  redacted: boolean; relatesTo?: string; relType?: string };
+export type TrukiBridgedChatSummary = {
+  id: string;
+  network: string;
+  loginId: string;
+  name: string;
+  avatarMxc?: string;
+  isDM: boolean;
+  unreadCount: number;
+  mutedUntil?: number;
+  lastActivity: number;
+  preview?: { text: string; fromMe: boolean };
+};
+export type TrukiBridgedEvent = {
+  id: string;
+  chatId: string;
+  sender: string;
+  type: string;
+  content: unknown;
+  timestamp: number;
+  streamOrder: number;
+  status: '' | 'pending' | 'sent' | 'failed';
+  errorCode?: string;
+  redacted: boolean;
+  relatesTo?: string;
+  relType?: string;
+};
 export type TrukiBridgeStateType = {
-  bridgeState: 'stopped'|'starting'|'running'|'backoff'|'gave-up'|'unavailable';
+  bridgeState:
+    | 'stopped'
+    | 'starting'
+    | 'running'
+    | 'backoff'
+    | 'gave-up'
+    | 'unavailable';
   networks: ReadonlyArray<{ id: string; name: string; enabled: boolean }>;
-  accounts: ReadonlyArray<{ loginId: string; network: string; remoteName: string; state: string; reason?: string }>;
+  accounts: ReadonlyArray<{
+    loginId: string;
+    network: string;
+    remoteName: string;
+    state: string;
+    reason?: string;
+  }>;
   chats: Readonly<Record<string, TrukiBridgedChatSummary>>;
   selectedChatId: string | undefined;
-  messagesByChat: Readonly<Record<string, { events: ReadonlyArray<TrukiBridgedEvent>; hasOlder: boolean; loading: boolean }>>;
-  loginProcesses: Readonly<Record<string, { network: string; step: unknown; seq: number; error?: { code: string; message: string } }>>;
-  pendingLoginEvents: Readonly<Record<string, ReadonlyArray<{ seq: number; step?: unknown; error?: { code: string; message: string } }>>>;
+  messagesByChat: Readonly<
+    Record<
+      string,
+      {
+        events: ReadonlyArray<TrukiBridgedEvent>;
+        hasOlder: boolean;
+        loading: boolean;
+      }
+    >
+  >;
+  loginProcesses: Readonly<
+    Record<
+      string,
+      {
+        network: string;
+        step: unknown;
+        seq: number;
+        error?: { code: string; message: string };
+      }
+    >
+  >;
+  pendingLoginEvents: Readonly<
+    Record<
+      string,
+      ReadonlyArray<{
+        seq: number;
+        step?: unknown;
+        error?: { code: string; message: string };
+      }>
+    >
+  >;
 };
-export function getEmptyState(): TrukiBridgeStateType;  // bridgeState 'stopped', empty collections
-export const actions: { trukiBridgeStart, trukiBridgeEventReceived, loadChats, selectBridgedChat,
-  clearBridgedSelection, loadOlderMessages, sendText, sendReaction, redactMessage, markRead, setMuted, retrySend };
-export const useTrukiBridgeActions: () => BoundActionCreatorsMapObject<typeof actions>;
+export function getEmptyState(): TrukiBridgeStateType; // bridgeState 'stopped', empty collections
+export const actions: {
+  trukiBridgeStart;
+  trukiBridgeEventReceived;
+  loadChats;
+  selectBridgedChat;
+  clearBridgedSelection;
+  loadOlderMessages;
+  sendText;
+  sendReaction;
+  redactMessage;
+  markRead;
+  setMuted;
+  retrySend;
+};
+export const useTrukiBridgeActions: () => BoundActionCreatorsMapObject<
+  typeof actions
+>;
 // selectors
 export const getTrukiBridge: (s: StateType) => TrukiBridgeStateType;
 export const getTrukiSelectedChatId: (s: StateType) => string | undefined;
-export const getTrukiChatList: (s: StateType) => ReadonlyArray<TrukiBridgedChatSummary>; // lastActivity desc, ties by id
+export const getTrukiChatList: (
+  s: StateType
+) => ReadonlyArray<TrukiBridgedChatSummary>; // lastActivity desc, ties by id
 ```
+
 `trukiBridgeStart` (thunk) subscribes once to events (idempotent), loads `networks.list`, `accounts.list`, `chats.list` (all pages). It is dispatched from Task 5's smart LeftPane on mount.
 
 - [ ] **Step 1: Failing reducer tests** (pure reducer, no IPC): `event.message` for an existing chat updates preview/lastActivity/unread; **for an unknown chat id creates a placeholder summary and the chat sorts first** (Review Focus 3, followed by a `chats.get` load in the thunk); same event id twice → one event (update in place); status `pending→sent→failed` transitions; redacted event loses body; `event.chat` upserts; `event.accountState` with empty `loginId` ignored, else replaces the account row incl. `reason`; `event.login.step` with lower `seq` ignored; step for unknown `processId` buffered then flushed by `loginStarted`; **bridge state → `stopped` then `running` keeps chats, clears `messagesByChat.loading`, and reload of an open chat replaces (not appends) its events** (Review Focus 2); `selectBridgedChat(id)` sets id, `clearBridgedSelection` clears it.
@@ -165,14 +256,18 @@ export const getTrukiChatList: (s: StateType) => ReadonlyArray<TrukiBridgedChatS
 **Files:** Create `ts/util/trukiMergeChatRows.std.ts`, `ts/components/truki/TrukiBridgedChatRow.dom.tsx` (+ `.dom.stories.tsx`), tests `ts/test-node/truki/trukiMergeChatRows_test.std.ts`, `ts/test-node/truki/trukiSelection_test.*.ts`. Modify (upstream) `ts/components/ConversationList.dom.tsx`, `ts/components/leftPane/LeftPaneInboxHelper.dom.tsx`, `ts/state/smart/LeftPane.preload.tsx`.
 
 **Interfaces:**
+
 ```ts
 export type TrukiMergedRow =
   | { kind: 'signal'; conversation: ConversationListItemPropsType }
   | { kind: 'truki'; chat: TrukiBridgedChatSummary };
-export function trukiMergeChatRows(signal: ReadonlyArray<ConversationListItemPropsType>,
-  bridged: ReadonlyArray<TrukiBridgedChatSummary>): ReadonlyArray<TrukiMergedRow>;
+export function trukiMergeChatRows(
+  signal: ReadonlyArray<ConversationListItemPropsType>,
+  bridged: ReadonlyArray<TrukiBridgedChatSummary>
+): ReadonlyArray<TrukiMergedRow>;
 // by activity desc (Signal: lastUpdated ?? 0; bridged: lastActivity); ties: Signal first, then id
 ```
+
 - `ConversationList.dom.tsx`: `RowType.TrukiBridgedChat = 'TrukiBridgedChat'`, row type `{ type: RowType.TrukiBridgedChat; chat: TrukiBridgedChatSummary; isSelected: boolean; onSelect: (id: string) => void }`, render branch → `<TrukiBridgedChatRow …/>`; give it the conversation row height.
 - `LeftPaneInboxHelper.dom.tsx`: optional prop `trukiBridgedChats?: ReadonlyArray<TrukiBridgedChatSummary>` (+ `trukiSelectedChatId?`, `onSelectTrukiChat?`). When absent or empty, every method behaves exactly as before. When present, the unpinned section iterates `trukiMergeChatRows(conversations, trukiBridgedChats)`; `getRowCount`, `getRow`, `getRowIndexToScrollTo` and `getConversationAndMessageAtIndex` use the merged list (bridged rows are skipped by keyboard "next/previous conversation" navigation — they return the next Signal row).
 - `smart/LeftPane.preload.tsx`: dispatch `trukiBridgeStart` once on mount; pass `getTrukiChatList` (filtered by the selected Space in Task 11; unfiltered until then), selection and `selectBridgedChat`.
@@ -244,14 +339,30 @@ Behaviour per spec §5: per-network rows with account status + reason; Connect �
 **Files:** Create `ts/services/trukiSpaceMembers.preload.ts`, tests; extend `ts/state/selectors/trukiBridge.std.ts`. Modify (upstream) `ts/types/StorageKeys.std.ts` (`trukiSpaceBridgedMembers: TrukiSpaceBridgedMembers;` and, if not yet added, `trukiBridgeBanRiskAccepted`).
 
 **Interfaces:**
+
 ```ts
-export type TrukiSpaceBridgedMembers = Readonly<Record<string /* ChatFolderId */, { chatIds: ReadonlyArray<string>; networks: ReadonlyArray<string> }>>;
+export type TrukiSpaceBridgedMembers = Readonly<
+  Record<
+    string /* ChatFolderId */,
+    { chatIds: ReadonlyArray<string>; networks: ReadonlyArray<string> }
+  >
+>;
 export function getTrukiSpaceMembers(): TrukiSpaceBridgedMembers;
-export function setTrukiSpaceMembers(folderId: string, m: { chatIds: ReadonlyArray<string>; networks: ReadonlyArray<string> }): Promise<void>;
+export function setTrukiSpaceMembers(
+  folderId: string,
+  m: { chatIds: ReadonlyArray<string>; networks: ReadonlyArray<string> }
+): Promise<void>;
 export function removeTrukiSpace(folderId: string): Promise<void>;
-export function trukiChatInSpace(chat: TrukiBridgedChatSummary, members: TrukiSpaceBridgedMembers[string] | undefined): boolean;
-export const getTrukiChatListForFolder: (s: StateType, folder: ChatFolder | null) => ReadonlyArray<TrukiBridgedChatSummary>;
+export function trukiChatInSpace(
+  chat: TrukiBridgedChatSummary,
+  members: TrukiSpaceBridgedMembers[string] | undefined
+): boolean;
+export const getTrukiChatListForFolder: (
+  s: StateType,
+  folder: ChatFolder | null
+) => ReadonlyArray<TrukiBridgedChatSummary>;
 ```
+
 Rules (spec §6.2): CUSTOM folder → chats in `chatIds` or whose network is in `networks`; ALL folder → every bridged chat except those in any folder with `hideFromAllChats`; unread totals per folder include bridged unread. Deleting a chat folder removes its entry (subscribe to the chatFolders duck's delete action in the Truki service, no upstream edit).
 
 - [ ] Tests first: membership by chat id, by network, both; ALL hides chats from hide-from-General spaces; folder deletion cleans up; unread totals. Run FAIL → implement; switch Task 5's `smart/LeftPane` to `getTrukiChatListForFolder` (Truki line already present there) → PASS → commit `truki(inbox): bridged chats in Spaces`.

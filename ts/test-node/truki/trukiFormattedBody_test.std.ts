@@ -141,12 +141,19 @@ describe('trukiFormattedBody parser', () => {
 
   it('keeps safe links', () => {
     assert.deepEqual(parseTrukiFormattedBody('<a href="https://e.ee">x</a>'), [
-      { kind: 'link', href: 'https://e.ee', children: [{ kind: 'text', text: 'x' }] },
+      {
+        kind: 'link',
+        href: 'https://e.ee',
+        children: [{ kind: 'text', text: 'x' }],
+      },
     ]);
-    assert.deepEqual(
-      parseTrukiFormattedBody('<a href="mailto:a@b.ee">x</a>'),
-      [{ kind: 'link', href: 'mailto:a@b.ee', children: [{ kind: 'text', text: 'x' }] }]
-    );
+    assert.deepEqual(parseTrukiFormattedBody('<a href="mailto:a@b.ee">x</a>'), [
+      {
+        kind: 'link',
+        href: 'mailto:a@b.ee',
+        children: [{ kind: 'text', text: 'x' }],
+      },
+    ]);
   });
 
   it('drops javascript: links of every spelling', () => {
@@ -178,8 +185,10 @@ describe('trukiFormattedBody parser', () => {
 
   it('decodes entities in text and href', () => {
     assert.deepEqual(
-      parseTrukiFormattedBody('a &amp; b &lt;tag&gt; &quot;q&quot; &#39;x&#39;'),
-      [{ kind: 'text', text: "a & b <tag> \"q\" 'x'" }]
+      parseTrukiFormattedBody(
+        'a &amp; b &lt;tag&gt; &quot;q&quot; &#39;x&#39;'
+      ),
+      [{ kind: 'text', text: 'a & b <tag> "q" \'x\'' }]
     );
     assert.deepEqual(parseTrukiFormattedBody('&#65;&#x42;'), [
       { kind: 'text', text: 'AB' },
@@ -294,7 +303,10 @@ describe('trukiFormattedBody truncation', () => {
     );
     const result = truncateTrukiBody(nodes, 4000);
     assert.equal(result.truncated, true);
-    assert.equal(textOf(result.nodes), `${'xyzw'.repeat(10)}${'c'.repeat(3960)}`);
+    assert.equal(
+      textOf(result.nodes),
+      `${'xyzw'.repeat(10)}${'c'.repeat(3960)}`
+    );
   });
 
   it('drops empty containers created by the cut', () => {

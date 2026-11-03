@@ -79,3 +79,21 @@ Recorded during per-task reviews; none blocks merge per the final review.
   shutdown id after a pre-init shutdown.
 - Supervisor: no request timeout; interleaved `setEnabledNetworks`;
   `settings.json` written on every launch; will-quit has no own timeout.
+
+## After the Inbox review
+
+Left open by the final whole-branch review of the Inbox sub-project.
+
+- M3: whole-slice selectors (`getTrukiBridge`, the items duck) re-render the
+  left pane on any bridge change; narrow them.
+- M4: muted bridged chats still count in Space badges; bridged unread is
+  missing from the app badge.
+- M5: plain-text URLs in bridged messages are not clickable.
+- M6: the vanished-Space prune after an unlink/relink wipes the Space
+  memberships.
+- M7: the renderer bridge IPC is a denylist; make it an allowlist.
+- T1: bridged avatars have no refcount.
+- T8: account-state `reason` is not truncated; the supervisor state races
+  with `will-quit`.
+- T12: match a new Space with `isSameChatFolderParams` rather than relying
+  on exactly one new folder id (now logged when members are dropped).

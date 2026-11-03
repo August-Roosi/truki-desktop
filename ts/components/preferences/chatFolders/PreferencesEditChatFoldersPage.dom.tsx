@@ -116,7 +116,11 @@ export function PreferencesEditChatFolderPage(
       initChatFolderParams,
       normalizedChatFolderParams
     );
-  }, [initChatFolderParams, normalizedChatFolderParams, props.trukiSpaceMembersDirty]);
+  }, [
+    initChatFolderParams,
+    normalizedChatFolderParams,
+    props.trukiSpaceMembersDirty,
+  ]);
 
   const didSaveOrDiscardChangesRef = useRef(false);
 
