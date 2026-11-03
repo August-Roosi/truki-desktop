@@ -24,7 +24,12 @@ export type TrukiBridgeNotifyDeps = Readonly<{
   getSetting: () => NotificationSettingType;
   isChatMuted: (id: string) => boolean;
   isChatOpenAndFocused: (id: string) => boolean;
-  show: (chatId: string, title: string, body: string, onClick: () => void) => void;
+  show: (
+    chatId: string,
+    title: string,
+    body: string,
+    onClick: () => void
+  ) => void;
   selectChat: (id: string) => void;
 }>;
 
@@ -132,6 +137,18 @@ export function getTrukiBridgeShownNotificationsForTesting(): ReadonlyMap<
   return notificationsByChat;
 }
 
+// Brings the app to the front as Signal's own notification click does:
+// showWindow restores a hidden or minimised window, which focus() cannot do
+// on Windows. focus() remains for a window without the IPC bridge.
+function raiseWindow(): void {
+  const ipc = (window as { IPC?: { showWindow?: () => void } }).IPC;
+  if (typeof ipc?.showWindow === 'function') {
+    ipc.showWindow();
+  } else {
+    window.focus();
+  }
+}
+
 function showDesktopNotification(
   chatId: string,
   title: string,
@@ -149,7 +166,7 @@ function showDesktopNotification(
     silent: false,
   });
   notification.onclick = () => {
-    window.focus();
+    raiseWindow();
     onClick();
     forgetShown(chatId, notification);
   };

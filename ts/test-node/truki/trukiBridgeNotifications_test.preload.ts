@@ -11,7 +11,11 @@ import {
   setTrukiBridgeShowNotificationForTesting,
 } from '../../services/trukiBridgeNotifications.preload.ts';
 import type { TrukiBridgeNotifyDeps } from '../../services/trukiBridgeNotifications.preload.ts';
-import { actions, getEmptyState, reducer } from '../../state/ducks/trukiBridge.preload.ts';
+import {
+  actions,
+  getEmptyState,
+  reducer,
+} from '../../state/ducks/trukiBridge.preload.ts';
 import type { TrukiBridgeAction } from '../../state/ducks/trukiBridge.preload.ts';
 import type { StateType } from '../../state/reducer.preload.ts';
 import type { TrukiBridgeEvent } from '../../../app/truki/trukiBridgeProtocol.std.ts';
@@ -33,9 +37,11 @@ type Shown = Readonly<{
   onClick: () => void;
 }>;
 
-function makeDeps(
-  overrides: Partial<TrukiBridgeNotifyDeps> = {}
-): { deps: TrukiBridgeNotifyDeps; shown: Array<Shown>; selected: Array<string> } {
+function makeDeps(overrides: Partial<TrukiBridgeNotifyDeps> = {}): {
+  deps: TrukiBridgeNotifyDeps;
+  shown: Array<Shown>;
+  selected: Array<string>;
+} {
   const shown: Array<Shown> = [];
   const selected: Array<string> = [];
   const deps: TrukiBridgeNotifyDeps = {
@@ -188,9 +194,11 @@ describe('trukiBridgeNotifications', () => {
 
     beforeEach(() => {
       shown = [];
-      setTrukiBridgeShowNotificationForTesting((chatId, title, body, onClick) => {
-        shown.push({ chatId, title, body, onClick });
-      });
+      setTrukiBridgeShowNotificationForTesting(
+        (chatId, title, body, onClick) => {
+          shown.push({ chatId, title, body, onClick });
+        }
+      );
     });
 
     afterEach(() => {
@@ -260,7 +268,11 @@ describe('trukiBridgeNotifications', () => {
 
     class FakeNotification {
       readonly title: string;
-      readonly options: Readonly<{ body: string; tag: string; silent: boolean }>;
+      readonly options: Readonly<{
+        body: string;
+        tag: string;
+        silent: boolean;
+      }>;
       closeCount = 0;
       onclick: (() => void) | null = null;
       onclose: (() => void) | null = null;
@@ -314,14 +326,33 @@ describe('trukiBridgeNotifications', () => {
       return notification;
     }
 
-    // The harness has no focusable window; the real onclick calls focus().
+    // The harness has no focusable window; the real onclick calls
+    // IPC.showWindow(), or focus() without the IPC bridge.
     const oldFocus = window.focus;
+    const oldIpc = Object.getOwnPropertyDescriptor(window, 'IPC');
     let focusCount = 0;
+    let showWindowCount = 0;
+
+    function setIpc(value: unknown): void {
+      Object.defineProperty(window, 'IPC', {
+        value,
+        configurable: true,
+        writable: true,
+      });
+    }
 
     beforeEach(() => {
+      focusCount = 0;
+      showWindowCount = 0;
       window.focus = (): void => {
         focusCount += 1;
       };
+      setIpc({
+        ...(oldIpc?.value ?? {}),
+        showWindow: (): void => {
+          showWindowCount += 1;
+        },
+      });
       created.length = 0;
       selected = [];
       setTrukiBridgeNotificationCtorForTesting(FakeNotification);
@@ -329,6 +360,11 @@ describe('trukiBridgeNotifications', () => {
 
     afterEach(() => {
       window.focus = oldFocus;
+      if (oldIpc) {
+        Object.defineProperty(window, 'IPC', oldIpc);
+      } else {
+        delete (window as { IPC?: unknown }).IPC;
+      }
       setTrukiBridgeNotificationCtorForTesting(undefined);
     });
 
@@ -368,8 +404,18 @@ describe('trukiBridgeNotifications', () => {
 
       notification.onclick?.();
 
-      assert.strictEqual(focusCount, 1);
+      assert.strictEqual(showWindowCount, 1);
+      assert.strictEqual(focusCount, 0);
       assert.strictEqual(getTrukiBridgeShownNotificationsForTesting().size, 0);
+      assert.deepEqual(selected, [CHAT_A]);
+    });
+
+    it('without the IPC bridge a click falls back to focus()', () => {
+      setIpc(undefined);
+      notifyChat(CHAT_A);
+      onlyCreated(0).onclick?.();
+
+      assert.strictEqual(focusCount, 1);
       assert.deepEqual(selected, [CHAT_A]);
     });
 
