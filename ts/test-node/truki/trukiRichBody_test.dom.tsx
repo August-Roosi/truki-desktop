@@ -58,6 +58,7 @@ function render(
   options: {
     direction?: 'incoming' | 'outgoing';
     trukiCard?: TrukiCardMessageProps;
+    disableLinks?: boolean;
   } = {}
 ): string {
   return withAxo(
@@ -66,6 +67,7 @@ function render(
       text={text}
       direction={options.direction ?? 'incoming'}
       trukiCard={options.trukiCard}
+      disableLinks={options.disableLinks ?? false}
     />
   );
 }
@@ -166,6 +168,40 @@ describe('TrukiRichBody', () => {
     assert.include(markup, '<pre');
     assert.include(markup, '? Pick');
     assert.lengthOf(buttons(markup), 0);
+  });
+
+  it('keeps reference definitions to safe schemes', () => {
+    const markup = render(
+      `${M}[a][x] [b][y] [c][z]\n\n[x]: javascript:alert(1)\n[y]: file:///etc/passwd\n[z]: https://example.com/ok`
+    );
+    assert.notMatch(markup, /javascript:/);
+    assert.notInclude(markup, 'file:');
+    assert.include(markup, 'href="https://example.com/ok"');
+  });
+
+  it('renders no links when links are disabled', () => {
+    const markup = render(`${M}[ok](https://example.com) https://example.org`, {
+      disableLinks: true,
+    });
+    assert.notInclude(markup, '<a');
+    assert.include(markup, 'ok');
+  });
+
+  it('shows the real host when link text looks like another address', () => {
+    const markup = render(`${M}[https://lhv.ee/login](https://evil.example/x)`);
+    // visible text (outside attributes) must name the real host
+    assert.match(markup, />[^<]*evil\.example/);
+    const same = render(`${M}[https://example.com/a](https://example.com/b)`);
+    assert.notInclude(same, '(example.com)');
+  });
+
+  it('falls back to plain text for unsafe markdown', () => {
+    const deep = `${M}${'- '.repeat(5000)}a`;
+    const started = Date.now();
+    const markup = render(deep);
+    assert.isBelow(Date.now() - started, 500);
+    assert.notInclude(markup, '<li');
+    assert.include(markup, '- - -');
   });
 
   it('renders footnotes and reference links', () => {

@@ -5,6 +5,8 @@ import { assert } from 'chai';
 
 import {
   findTrukiCardAnswer,
+  getTrukiCardForMessage,
+  isTrukiMarkdownSafe,
   shouldRenderTrukiRich,
   TRUKI_RICH_MARKER,
 } from '../../util/trukiRichMessage.std.ts';
@@ -73,5 +75,63 @@ describe('shouldRenderTrukiRich', () => {
   it('leaves plain bodies alone', () => {
     assert.isFalse(shouldRenderTrukiRich('# x', false));
     assert.isFalse(shouldRenderTrukiRich(undefined, false));
+  });
+});
+
+const CARD_TEXT = `${TRUKI_RICH_MARKER}\`\`\`options\n? Q\n- A\n- B\n\`\`\``;
+
+describe('isTrukiMarkdownSafe', () => {
+  it('accepts an ordinary report', () => {
+    assert.isTrue(
+      isTrukiMarkdownSafe(
+        '# Report\n\n- **a**\n  - b\n\n> quote\n\n| x | y |\n|---|---|'
+      )
+    );
+  });
+
+  it('rejects deep list and quote nesting', () => {
+    assert.isFalse(isTrukiMarkdownSafe(`${'- '.repeat(5000)}a`));
+    assert.isFalse(isTrukiMarkdownSafe('>'.repeat(10000)));
+    assert.isFalse(isTrukiMarkdownSafe(`${'1. '.repeat(20)}a`));
+    const staircase = Array.from(
+      { length: 40 },
+      (_, i) => `${' '.repeat(i * 2)}- a`
+    ).join('\n');
+    assert.isFalse(isTrukiMarkdownSafe(staircase));
+  });
+
+  it('rejects long input and emphasis floods', () => {
+    assert.isFalse(isTrukiMarkdownSafe('a'.repeat(8001)));
+    assert.isFalse(isTrukiMarkdownSafe('*a'.repeat(700)));
+    assert.isTrue(isTrukiMarkdownSafe('**bold** '.repeat(100)));
+  });
+
+  it('keeps rich rendering off for unsafe bodies', () => {
+    assert.isFalse(
+      shouldRenderTrukiRich(`${TRUKI_RICH_MARKER}${'- '.repeat(5000)}a`, false)
+    );
+  });
+});
+
+describe('getTrukiCardForMessage', () => {
+  it('returns the card when the user can reply', () => {
+    assert.strictEqual(
+      getTrukiCardForMessage({ text: CARD_TEXT, canReply: true })?.question,
+      'Q'
+    );
+  });
+
+  it('returns no card without canReply', () => {
+    assert.isNull(getTrukiCardForMessage({ text: CARD_TEXT, canReply: false }));
+    assert.isNull(getTrukiCardForMessage({ text: CARD_TEXT }));
+  });
+
+  it('returns no card for an unsafe body', () => {
+    assert.isNull(
+      getTrukiCardForMessage({
+        text: `${CARD_TEXT}\n\n${'*a'.repeat(700)}`,
+        canReply: true,
+      })
+    );
   });
 });

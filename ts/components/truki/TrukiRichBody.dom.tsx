@@ -10,7 +10,11 @@ import type { JSX, ReactNode } from 'react';
 import { tw } from '../../axo/tw.dom.tsx';
 import { isLinkSneaky } from '../../types/LinkPreview.std.ts';
 import type { LocalizerType } from '../../types/Util.std.ts';
-import { parseTrukiMarkdown } from '../../util/trukiMarkdown.std.ts';
+import {
+  parseTrukiMarkdown,
+  TRUKI_SAFE_URL,
+} from '../../util/trukiMarkdown.std.ts';
+import { stripTrukiMarker } from '../../util/trukiRichMessage.std.ts';
 import type { TrukiMdNode, TrukiMdRoot } from '../../util/trukiMarkdown.std.ts';
 import type { TrukiCardAnswer } from '../../util/trukiRichMessage.std.ts';
 import { TrukiOptionsCard } from './TrukiOptionsCard.dom.tsx';
@@ -26,6 +30,8 @@ export type TrukiRichBodyProps = Readonly<{
   text: string;
   direction: 'incoming' | 'outgoing';
   trukiCard?: TrukiCardMessageProps;
+  // Upstream's link gate (message requests, blocked contacts).
+  disableLinks?: boolean;
 }>;
 
 const MAX_DEPTH = 32;
@@ -41,7 +47,20 @@ type AnyNode = TrukiMdRoot | TrukiMdNode;
 type RenderContext = {
   definitions: Map<string, string>;
   footnotes: Array<{ id: string; node: TrukiMdNode }>;
+  disableLinks: boolean;
 };
+
+// Link text that reads like an address: "lhv.ee", "https://lhv.ee/login".
+const ADDRESS_TEXT =
+  /^\s*(?:[a-z][a-z0-9+.-]*:\/\/)?((?:[\w-]+\.)+[a-z]{2,})\b/i;
+
+function hostOf(url: string): string | undefined {
+  try {
+    return new URL(url).host.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
 
 function childrenOf(node: AnyNode): ReadonlyArray<TrukiMdNode> {
   return 'children' in node
@@ -58,7 +77,7 @@ function textOf(node: AnyNode): string {
 
 function collect(node: AnyNode, context: RenderContext): void {
   for (const child of childrenOf(node)) {
-    if (child.type === 'definition') {
+    if (child.type === 'definition' && TRUKI_SAFE_URL.test(child.url)) {
       context.definitions.set(child.identifier, child.url);
     } else if (child.type === 'footnoteDefinition') {
       context.footnotes.push({ id: child.identifier, node: child });
@@ -70,17 +89,33 @@ function collect(node: AnyNode, context: RenderContext): void {
 function renderLink(
   url: string,
   children: ReactNode,
+  label: string,
+  context: RenderContext,
   key: number
 ): JSX.Element {
-  // parseTrukiMarkdown only keeps http, https and mailto links; for web
-  // links also follow Signal's sneaky-link handling, as TrukiFormattedBody.
-  if (WEB_URL_PATTERN.test(url) && isLinkSneaky(url) === 'yes') {
+  // Only http, https and mailto are ever live; web links also follow
+  // Signal's sneaky-link handling, as TrukiFormattedBody does.
+  if (
+    context.disableLinks ||
+    !TRUKI_SAFE_URL.test(url) ||
+    (WEB_URL_PATTERN.test(url) && isLinkSneaky(url) === 'yes')
+  ) {
     return <span key={key}>{children}</span>;
   }
+  // Text that looks like a different address than the target shows the
+  // real host next to it, so "[bank.ee](https://evil)" can't pass as bank.ee.
+  const shownHost = ADDRESS_TEXT.exec(label)?.[1]?.toLowerCase();
+  const realHost = WEB_URL_PATTERN.test(url) ? hostOf(url) : undefined;
+  const spoofed =
+    shownHost != null &&
+    realHost != null &&
+    shownHost !== realHost &&
+    !realHost.endsWith(`.${shownHost}`);
   return (
-    <a key={key} href={url}>
-      {children}
-    </a>
+    <span key={key}>
+      <a href={url}>{children}</a>
+      {spoofed ? ` (${realHost})` : null}
+    </span>
   );
 }
 
@@ -214,14 +249,18 @@ function renderNode(
         </td>
       );
     case 'link':
-      return renderLink(node.url, children(), key);
+      return renderLink(node.url, children(), textOf(node), context, key);
     case 'linkReference': {
       const url = context.definitions.get(node.identifier);
-      return url ? renderLink(url, children(), key) : textOf(node);
+      return url
+        ? renderLink(url, children(), textOf(node), context, key)
+        : textOf(node);
     }
     case 'imageReference': {
       const url = context.definitions.get(node.identifier);
-      return url ? renderLink(url, node.alt || url, key) : (node.alt ?? '');
+      return url
+        ? renderLink(url, node.alt || url, node.alt ?? '', context, key)
+        : (node.alt ?? '');
     }
     case 'footnoteReference': {
       const index = context.footnotes.findIndex(f => f.id === node.identifier);
@@ -240,13 +279,33 @@ export function TrukiRichBody({
   text,
   direction,
   trukiCard,
+  disableLinks = false,
 }: TrukiRichBodyProps): JSX.Element {
-  const { root, card } = useMemo(() => parseTrukiMarkdown(text), [text]);
+  const parsed = useMemo(() => parseTrukiMarkdown(text), [text]);
   const context = useMemo(() => {
-    const result: RenderContext = { definitions: new Map(), footnotes: [] };
-    collect(root, result);
+    const result: RenderContext = {
+      definitions: new Map(),
+      footnotes: [],
+      disableLinks,
+    };
+    if (parsed) {
+      collect(parsed.root, result);
+    }
     return result;
-  }, [root]);
+  }, [parsed, disableLinks]);
+
+  if (parsed == null) {
+    // Not safe to parse (or the parser failed): today's plain rendering.
+    return (
+      <div
+        className={tw('wrap-break-word whitespace-pre-wrap select-text')}
+        dir="auto"
+      >
+        {stripTrukiMarker(text)}
+      </div>
+    );
+  }
+  const { root, card } = parsed;
 
   return (
     <div className={tw('wrap-break-word select-text')}>

@@ -296,11 +296,71 @@ export function findTrukiCardAnswer(
   return null;
 }
 
+// Markdown parsing (micromark) is superlinear on some inputs: runs of
+// emphasis markers and deep container nesting. Anything a sender could use
+// to stall the renderer falls back to plain text. Limits measured: worst
+// case at these bounds parses in well under a second.
+const MAX_RICH_LENGTH = 8000;
+const MAX_EMPHASIS_MARKERS = 600;
+const MAX_NESTING = 16;
+const CONTAINER_PREFIX =
+  /^[ \t]*(?:>|[-*+](?=[ \t]|$)|\d{1,9}[.)](?=[ \t]|$))[ \t]?/;
+
+function lineNestingExceeds(line: string): boolean {
+  const indent = /^[ \t]*/.exec(line)?.[0] ?? '';
+  let depth = Math.floor(indent.replace(/\t/g, '    ').length / 2);
+  let rest = line;
+  while (depth <= MAX_NESTING) {
+    const match = CONTAINER_PREFIX.exec(rest);
+    if (!match || match[0].length === 0) {
+      break;
+    }
+    depth += 1;
+    rest = rest.slice(match[0].length);
+  }
+  return depth > MAX_NESTING;
+}
+
+// `text` is the body without the marker.
+export function isTrukiMarkdownSafe(text: string): boolean {
+  if (text.length > MAX_RICH_LENGTH) {
+    return false;
+  }
+  let markers = 0;
+  for (const ch of text) {
+    if (ch === '*' || ch === '_' || ch === '~') {
+      markers += 1;
+      if (markers > MAX_EMPHASIS_MARKERS) {
+        return false;
+      }
+    }
+  }
+  return !text.split('\n').some(lineNestingExceeds);
+}
+
 // Message.renderText: render rich only once the full text is here (a long
-// message's tail arrives as a long-text attachment).
+// message's tail arrives as a long-text attachment) and only when parsing
+// it is safe.
 export function shouldRenderTrukiRich(
   text: string | undefined | null,
   longTextPending: boolean
 ): boolean {
-  return isTrukiRich(text) && !longTextPending;
+  return (
+    text != null &&
+    isTrukiRich(text) &&
+    !longTextPending &&
+    isTrukiMarkdownSafe(stripTrukiMarker(text))
+  );
+}
+
+// The card whose buttons may act: only where upstream would allow a reply
+// (not in message requests, blocked chats or terminated groups).
+export function getTrukiCardForMessage(
+  message: Readonly<{ text?: string | null; canReply?: boolean }>
+): TrukiCard | null {
+  const { text, canReply } = message;
+  if (!canReply || text == null || !shouldRenderTrukiRich(text, false)) {
+    return null;
+  }
+  return analyzeTrukiRich(text).card;
 }

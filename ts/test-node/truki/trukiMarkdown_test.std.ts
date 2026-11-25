@@ -14,6 +14,17 @@ const INVALID_BODY = `${M}\`\`\`options\n? Pick\n- Only\n\`\`\``;
 
 type AnyNode = TrukiMdRoot | TrukiMdNode;
 
+function parseOk(
+  body: string
+): NonNullable<ReturnType<typeof parseTrukiMarkdown>> {
+  const parsed = parseTrukiMarkdown(body);
+  assert.isNotNull(parsed);
+  if (parsed == null) {
+    throw new Error('unreachable');
+  }
+  return parsed;
+}
+
 function all(root: TrukiMdRoot): Array<AnyNode> {
   const out: Array<AnyNode> = [];
   const visit = (node: AnyNode) => {
@@ -36,40 +47,40 @@ function texts(root: TrukiMdRoot): string {
 
 describe('trukiMarkdown', () => {
   it('renders raw html as text', () => {
-    const { root } = parseTrukiMarkdown(`${M}hi <b>x</b>`);
+    const { root } = parseOk(`${M}hi <b>x</b>`);
     assert.isFalse(all(root).some(n => n.type === 'html'));
     assert.include(texts(root), '<b>');
   });
 
   it('turns images into links', () => {
-    const { root } = parseTrukiMarkdown(`${M}![logo](https://a/b.png)`);
+    const { root } = parseOk(`${M}![logo](https://a/b.png)`);
     assert.isFalse(all(root).some(n => n.type === 'image'));
     const link = all(root).find(n => n.type === 'link');
     assert.strictEqual(link?.type === 'link' && link.url, 'https://a/b.png');
     assert.include(texts(root), 'logo');
 
-    const bare = parseTrukiMarkdown(`${M}![](https://a/c.png)`).root;
+    const bare = parseOk(`${M}![](https://a/c.png)`).root;
     assert.include(texts(bare), 'https://a/c.png');
   });
 
   it('makes unsafe schemes text', () => {
-    const { root } = parseTrukiMarkdown(`${M}[x](javascript:alert(1)) ok`);
+    const { root } = parseOk(`${M}[x](javascript:alert(1)) ok`);
     assert.isFalse(all(root).some(n => n.type === 'link'));
     assert.include(texts(root), 'x');
 
-    const mail = parseTrukiMarkdown(`${M}[m](mailto:a@b.ee)`).root;
+    const mail = parseOk(`${M}[m](mailto:a@b.ee)`).root;
     assert.isTrue(all(mail).some(n => n.type === 'link'));
   });
 
   it('removes the options block only for a valid card', () => {
-    const valid = parseTrukiMarkdown(CARD_BODY);
+    const valid = parseOk(CARD_BODY);
     assert.strictEqual(valid.card?.question, 'Which environment?');
     assert.isFalse(
       all(valid.root).some(n => n.type === 'code' && n.lang === 'options')
     );
     assert.include(texts(valid.root), 'Intro');
 
-    const invalid = parseTrukiMarkdown(INVALID_BODY);
+    const invalid = parseOk(INVALID_BODY);
     assert.isNull(invalid.card);
     assert.isTrue(
       all(invalid.root).some(n => n.type === 'code' && n.lang === 'options')
@@ -77,7 +88,7 @@ describe('trukiMarkdown', () => {
   });
 
   it('parses gfm', () => {
-    const { root } = parseTrukiMarkdown(
+    const { root } = parseOk(
       `${M}| a | b |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n\n~~old~~ text[^1]\n\n[^1]: note`
     );
     const types = new Set(all(root).map(n => n.type));
@@ -89,14 +100,21 @@ describe('trukiMarkdown', () => {
     );
   });
 
-  it('caps input length', () => {
+  it('returns null for unsafe markdown, quickly and without throwing', () => {
     const started = Date.now();
-    const { root } = parseTrukiMarkdown(`${M}${'word '.repeat(40000)}`);
-    assert.isBelow(Date.now() - started, 2000);
-    assert.isAtMost(root.position?.end.offset ?? 0, 65536);
+    assert.isNull(parseTrukiMarkdown(`${M}${'- '.repeat(5000)}a`));
+    assert.isNull(parseTrukiMarkdown(`${M}${'*_'.repeat(5000)}x`));
+    assert.isBelow(Date.now() - started, 200);
   });
 
   describe('plain text', () => {
+    it('is the stripped body for unsafe markdown', () => {
+      const started = Date.now();
+      const deep = `${M}${'- '.repeat(5000)}a`;
+      assert.strictEqual(getTrukiRichPlainText(deep), deep.slice(1, 501));
+      assert.isBelow(Date.now() - started, 200);
+    });
+
     it('is the question for a card', () => {
       assert.strictEqual(
         getTrukiRichPlainText(CARD_BODY),

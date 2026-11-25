@@ -11,6 +11,7 @@ import { gfm } from 'micromark-extension-gfm';
 
 import {
   analyzeTrukiRich,
+  isTrukiMarkdownSafe,
   isTrukiRich,
   stripTrukiMarker,
 } from './trukiRichMessage.std.ts';
@@ -21,10 +22,8 @@ export type TrukiMdRoot = ReturnType<typeof fromMarkdown>;
 export type TrukiMdNode = TrukiMdRoot['children'][number];
 export type TrukiMarkdown = { root: TrukiMdRoot; card: TrukiCard | null };
 
-// Same cap as trukiFormattedBody: hostile input stays bounded.
-const MAX_PARSED_LENGTH = 65536;
 const MAX_PLAIN_LENGTH = 500;
-const SAFE_URL = /^(https?:|mailto:)/i;
+export const TRUKI_SAFE_URL = /^(https?:|mailto:)/i;
 
 function childrenOf(node: TrukiMdRoot | TrukiMdNode): Array<TrukiMdNode> {
   return 'children' in node ? (node.children as Array<TrukiMdNode>) : [];
@@ -54,7 +53,7 @@ function transformChildren(
         children: [{ type: 'text', value: child.alt || child.url }],
         position: child.position,
       });
-    } else if (child.type === 'link' && !SAFE_URL.test(child.url)) {
+    } else if (child.type === 'link' && !TRUKI_SAFE_URL.test(child.url)) {
       next.push(...transformChildren(childrenOf(child), false));
     } else if ('children' in child) {
       // Swaps keep phrasing as phrasing, so the parent's child type holds.
@@ -69,21 +68,30 @@ function transformChildren(
   return next;
 }
 
-export function parseTrukiMarkdown(body: string): TrukiMarkdown {
-  const { card } = analyzeTrukiRich(body);
-  const text = stripTrukiMarker(body).slice(0, MAX_PARSED_LENGTH);
-  const root = fromMarkdown(text, {
-    extensions: [gfm()],
-    mdastExtensions: [gfmFromMarkdown()],
-  });
-  // Only top-level options fences are cards (removeOptions at root only).
-  return {
-    root: {
-      ...root,
-      children: transformChildren(root.children, card != null),
-    },
-    card,
-  };
+// Null when the body is not safe to parse (see isTrukiMarkdownSafe) or the
+// parser throws: callers fall back to plain text.
+export function parseTrukiMarkdown(body: string): TrukiMarkdown | null {
+  const text = stripTrukiMarker(body);
+  if (!isTrukiMarkdownSafe(text)) {
+    return null;
+  }
+  try {
+    const { card } = analyzeTrukiRich(body);
+    const root = fromMarkdown(text, {
+      extensions: [gfm()],
+      mdastExtensions: [gfmFromMarkdown()],
+    });
+    // Only top-level options fences are cards (removeOptions at root only).
+    return {
+      root: {
+        ...root,
+        children: transformChildren(root.children, card != null),
+      },
+      card,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function inlineText(nodes: ReadonlyArray<TrukiMdNode>): string {
@@ -136,12 +144,16 @@ export function getTrukiRichPlainText(body: string): string {
   if (!isTrukiRich(body)) {
     return body;
   }
-  const { root, card } = parseTrukiMarkdown(body);
+  const { card } = analyzeTrukiRich(body);
   if (card) {
     return card.question.slice(0, MAX_PLAIN_LENGTH);
   }
+  const parsed = parseTrukiMarkdown(body);
+  if (parsed == null) {
+    return stripTrukiMarker(body).slice(0, MAX_PLAIN_LENGTH);
+  }
   const lines: Array<string> = [];
-  blockLines(root, lines);
+  blockLines(parsed.root, lines);
   return lines
     .map(line => line.replace(/\s+/g, ' ').trim())
     .filter(Boolean)

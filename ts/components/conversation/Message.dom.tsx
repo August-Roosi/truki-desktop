@@ -2511,6 +2511,7 @@ export class Message extends PureComponent<Props, State> {
             text={text}
             direction={direction}
             trukiCard={this.props.trukiCard}
+            disableLinks={!this.#areLinksEnabled()}
           />
         )}
         {messageStatusContents == null && text != null && !trukiRich && (

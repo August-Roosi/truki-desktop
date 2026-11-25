@@ -13,9 +13,8 @@ import { drop } from '../../util/drop.std.ts';
 import { isNotNil } from '../../util/isNotNil.std.ts';
 import { sendTrukiCardAnswer } from '../../util/trukiSendCardAnswer.preload.ts';
 import {
-  analyzeTrukiRich,
   findTrukiCardAnswer,
-  isTrukiRich,
+  getTrukiCardForMessage,
 } from '../../util/trukiRichMessage.std.ts';
 import type { TrukiCardAnswer } from '../../util/trukiRichMessage.std.ts';
 import { useComposerActions } from '../ducks/composer.preload.ts';
@@ -38,10 +37,10 @@ export function useTrukiCardProps(item: TimelineItemType | undefined): {
   const messageId = message?.id;
   const sentAt = message?.timestamp;
 
+  const canReply = message?.canReply;
   const card = useMemo(
-    () =>
-      text != null && isTrukiRich(text) ? analyzeTrukiRich(text).card : null,
-    [text]
+    () => getTrukiCardForMessage({ text, canReply }),
+    [text, canReply]
   );
 
   const answer = useSelector((state: StateType): TrukiCardAnswer | null => {
