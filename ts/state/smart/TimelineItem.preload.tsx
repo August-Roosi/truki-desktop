@@ -46,6 +46,7 @@ import { MessageInteractivity } from '../../components/conversation/Message.dom.
 import { useNavActions } from '../ducks/nav.std.ts';
 import { DataReader } from '../../sql/Client.preload.ts';
 import { isInternalFeaturesEnabled } from '../../util/isInternalFeaturesEnabled.dom.ts';
+import { useTrukiCardProps } from './trukiCardProps.preload.ts';
 import type { CollapseSet } from '../../util/CollapseSet.std.ts';
 import { isSignalConversation } from '../../util/isSignalConversation.dom.ts';
 
@@ -102,6 +103,7 @@ export const SmartTimelineItem = memo(function SmartTimelineItem(
   const itemFromSelector = useTimelineItem(messageId, conversationId);
   const previousItem = useTimelineItem(previousMessageId, conversationId);
   const nextItem = useTimelineItem(nextMessageId, conversationId);
+  const trukiCardProps = useTrukiCardProps(itemFromSelector);
   const targetedMessage = useSelector(getTargetedMessage);
   const targetedMessageSource = useSelector(getTargetedMessageSource);
   const isTargeted = Boolean(
@@ -326,6 +328,7 @@ export const SmartTimelineItem = memo(function SmartTimelineItem(
       toggleSafetyNumberModal={toggleSafetyNumberModal}
       viewStory={viewStory}
       toggleSelectMessage={toggleSelectMessage}
+      {...trukiCardProps}
     />
   );
 });

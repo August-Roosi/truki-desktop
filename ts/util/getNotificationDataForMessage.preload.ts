@@ -63,6 +63,8 @@ import { missingCaseError } from './missingCaseError.std.ts';
 import { getUserConversationId } from '../state/selectors/user.std.ts';
 import { itemStorage } from '../textsecure/Storage.preload.ts';
 import { Emoji } from '../axo/emoji.std.ts';
+import { getTrukiRichPlainText } from './trukiMarkdown.std.ts';
+import { isTrukiRich } from './trukiRichMessage.std.ts';
 
 const log = createLogger('getNotificationDataForMessage');
 const { i18n } = window.SignalContext;
@@ -561,6 +563,10 @@ export function getNotificationDataForMessage(
       emoji: Emoji.BAR_CHART,
       text,
     };
+  }
+
+  if (body && isTrukiRich(body)) {
+    return { text: getTrukiRichPlainText(body) };
   }
 
   if (body) {

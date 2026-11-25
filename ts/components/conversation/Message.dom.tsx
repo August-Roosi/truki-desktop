@@ -125,6 +125,9 @@ import type { ContactModalStateType } from '../../types/globalModals.std.ts';
 import { tw } from '../../axo/tw.dom.tsx';
 import { Emoji } from '../../axo/emoji.std.ts';
 import { AxoButton } from '../../axo/AxoButton.dom.tsx';
+import { TrukiRichBody } from '../truki/TrukiRichBody.dom.tsx';
+import type { TrukiCardMessageProps } from '../truki/TrukiRichBody.dom.tsx';
+import { shouldRenderTrukiRich } from '../../util/trukiRichMessage.std.ts';
 
 const { drop, take, unescape } = lodash;
 
@@ -368,6 +371,7 @@ export type PropsActions = {
   endPoll: (messageId: string) => void;
   showContactModal: (payload: ContactModalStateType) => void;
   showSpoiler: (messageId: string, data: Record<number, boolean>) => void;
+  trukiCard?: TrukiCardMessageProps;
 
   cancelAttachmentDownload: (options: { messageId: string }) => void;
   kickOffAttachmentDownload: (options: { messageId: string }) => void;
@@ -2465,6 +2469,11 @@ export class Message extends PureComponent<Props, State> {
       return null;
     }
 
+    const trukiRich = shouldRenderTrukiRich(
+      text,
+      textAttachment != null && !isDownloaded(textAttachment)
+    );
+
     return (
       <div // oxlint-disable-line jsx-a11y/click-events-have-key-events,jsx-a11y/no-static-element-interactions
         className={classNames(
@@ -2496,7 +2505,15 @@ export class Message extends PureComponent<Props, State> {
         }}
       >
         {messageStatusContents != null && messageStatusContents}
-        {messageStatusContents == null && text != null && (
+        {messageStatusContents == null && text != null && trukiRich && (
+          <TrukiRichBody
+            i18n={i18n}
+            text={text}
+            direction={direction}
+            trukiCard={this.props.trukiCard}
+          />
+        )}
+        {messageStatusContents == null && text != null && !trukiRich && (
           <MessageBodyReadMore
             bodyRanges={bodyRanges}
             direction={direction}

@@ -266,3 +266,41 @@ export function formatTrukiCardAnswer(
   const head = `${CHECK} ${labels.join(', ')}`;
   return otherText ? `${head}\n${otherText}` : head;
 }
+
+export type TrukiQuotingMessage = Readonly<{
+  type?: string;
+  sent_at?: number;
+  body?: string;
+  quote?: Readonly<{ id?: number | null }> | null;
+}>;
+
+// The card's answer: the newest outgoing quote-reply to it whose body
+// resolves. Answers are ordinary synced messages, so one sent from any of
+// the user's devices counts.
+export function findTrukiCardAnswer(
+  messages: Iterable<TrukiQuotingMessage>,
+  card: TrukiCard,
+  cardSentAt: number
+): TrukiCardAnswer | null {
+  const replies = [...messages]
+    .filter(
+      m => m.type === 'outgoing' && m.quote?.id === cardSentAt && m.body != null
+    )
+    .sort((a, b) => (b.sent_at ?? 0) - (a.sent_at ?? 0));
+  for (const reply of replies) {
+    const answer = resolveTrukiCardAnswer(card, reply.body ?? '', true);
+    if (answer) {
+      return answer;
+    }
+  }
+  return null;
+}
+
+// Message.renderText: render rich only once the full text is here (a long
+// message's tail arrives as a long-text attachment).
+export function shouldRenderTrukiRich(
+  text: string | undefined | null,
+  longTextPending: boolean
+): boolean {
+  return isTrukiRich(text) && !longTextPending;
+}
