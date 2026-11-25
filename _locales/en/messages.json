@@ -467,6 +467,30 @@
     "messageformat": "Show more",
     "description": "Truki inbox > message body > button shown when a long message was truncated"
   },
+  "icu:TrukiOptionsCard--Send": {
+    "messageformat": "Send",
+    "description": "Truki > agent message > question card > button that sends the checked options of a multi-choice question"
+  },
+  "icu:TrukiOptionsCard--Other": {
+    "messageformat": "Other…",
+    "description": "Truki > agent message > question card > button that starts a free-text answer to the question"
+  },
+  "icu:TrukiOptionsCard--Answered": {
+    "messageformat": "Answered",
+    "description": "Truki > agent message > question card > label shown under a question that has been answered"
+  },
+  "icu:TrukiOptionsCard--OtherAnswer": {
+    "messageformat": "Other: {text}",
+    "description": "Truki > agent message > question card > shows the free-text part of an answer"
+  },
+  "icu:TrukiOptionsCard--ChooseAny": {
+    "messageformat": "Choose any",
+    "description": "Truki > agent message > question card > hint above the options of a question that allows several answers"
+  },
+  "icu:TrukiOptionsCard--ChooseOne": {
+    "messageformat": "Choose one",
+    "description": "Truki > agent message > question card > hint above the options of a question that allows one answer"
+  },
   "icu:TrukiBridgedChatRow__PreviewFromMe": {
     "messageformat": "You: {text}",
     "description": "Truki inbox > chat list > bridged chat row > preview of the last message when you sent it"
