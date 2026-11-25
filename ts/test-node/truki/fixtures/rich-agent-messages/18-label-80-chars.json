@@ -1,0 +1,19 @@
+{
+  "rich": true,
+  "card": {
+    "question": "Pick",
+    "options": [
+      {
+        "label": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "description": ""
+      },
+      {
+        "label": "B",
+        "description": ""
+      }
+    ],
+    "multi": false,
+    "other": true
+  },
+  "invalid": false
+}

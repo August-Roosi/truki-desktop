@@ -1,0 +1,19 @@
+{
+  "rich": true,
+  "card": {
+    "question": "Which environment?",
+    "options": [
+      {
+        "label": "Staging",
+        "description": ""
+      },
+      {
+        "label": "Production",
+        "description": ""
+      }
+    ],
+    "multi": true,
+    "other": false
+  },
+  "invalid": false
+}

@@ -1,0 +1,19 @@
+{
+  "rich": true,
+  "card": {
+    "question": "Ship?",
+    "options": [
+      {
+        "label": "Yes, deploy",
+        "description": ""
+      },
+      {
+        "label": "Later",
+        "description": ""
+      }
+    ],
+    "multi": false,
+    "other": true
+  },
+  "invalid": false
+}

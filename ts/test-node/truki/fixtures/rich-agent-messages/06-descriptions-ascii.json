@@ -1,0 +1,19 @@
+{
+  "rich": true,
+  "card": {
+    "question": "Deploy?",
+    "options": [
+      {
+        "label": "Staging",
+        "description": "safe, nobody notices"
+      },
+      {
+        "label": "Production",
+        "description": "users get the fix now"
+      }
+    ],
+    "multi": false,
+    "other": true
+  },
+  "invalid": false
+}
